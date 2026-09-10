@@ -11,9 +11,12 @@ here may say which model to use. Everything else in this repository follows from
 
 ## What is here
 
-- `schemas/run-record.schema.json` — the record shape, transcribed field for field from the table
-  "What a run record must carry" in RFC-2026-09-08. Every component of that table is required,
-  because the table's third column is a list of things that cannot be added later.
+- `schemas/run-record.schema.json` — the record shape, transcribed from the table "What a run record
+  must carry" in RFC-2026-09-08, every component of which is required because that table's third
+  column lists what cannot be added later. Plus a small, marked set of additions — `run_id`,
+  `started_at`, `repository_state.repository`, `repository_state.visibility`, `pairing` — each
+  carrying a "Not from the RFC table" note in its own description, and each a condition of one of the
+  table's own disciplines being executable.
 - `inbox/` — the landing zone for rows produced elsewhere, before there is a store to put them in.
   See `inbox/README.md` for its convention.
 
@@ -45,6 +48,9 @@ declares `pairing.baseline: none`; it is a legitimate group, and it never carrie
 - **A runner may report a USD figure under a subscription** by applying a price list to the token
   counts. That figure is imputed rather than reported, the schema rejects it on a non-`api` row, and
   the producer is expected to drop it deliberately rather than never to have looked for it.
+- **`repository_state.visibility` is ADR-020's taxonomy, not the host's.** The producer maps
+  `gh repo view --json visibility` onto it fail-closed: anything it cannot establish as `PUBLIC`
+  becomes `enterprise-private`.
 
 ## Where the decisions are
 
@@ -83,6 +89,11 @@ contradicted by a known-broken input is unvalidated, so no outcome this reposito
 record today is a pass: every row is `UNKNOWN`, or `UNREACHABLE` where a run never got far enough
 to be judged. The schema enforces exactly that — a row whose `oracle.calibration.status` is `fail`
 or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
+
+Private rows do not land in this repository's `inbox/`: `exeris-ai-execution-enterprise` will hold
+them, and it does not exist yet — which is fine while V0's domain is documentation in public
+repositories, and is the thing to build before the first enterprise row, for the same reason
+`inbox/` itself was created early.
 
 ## Open questions
 

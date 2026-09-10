@@ -13,6 +13,14 @@ inbox early, "even if it holds nothing else", as the answer.
 - **One file per run, `inbox/<YYYY-MM-DD>/<run_id>.json`, dated by `started_at` in UTC.** One run
   per file so a row can be added, corrected or quarantined without rewriting its neighbours; UTC so
   the directory a row lands in does not depend on where it was produced.
+- **Public rows only.** Every row here carries `repository_state.visibility: public`; an
+  `enterprise-private` row belongs in the private inbox of the sibling repository
+  `exeris-ai-execution-enterprise`, which does not exist yet — ADR-018's public spec beside a private
+  decoder, `exeris-benchmarks` beside `exeris-benchmarks-enterprise`. The schema and the tooling stay
+  public because a contract is public; it is the rows that visibility protects. The rule is
+  machine-checkable but **not yet machine-checked**: nothing in this repository validates an inbox,
+  and a JSON Schema cannot, because a schema does not know which repository it is being validated in.
+  An inbox validator is therefore the first tooling this repository needs.
 - **Every file validates against `../schemas/run-record.schema.json`.** A file that does not is not
   a row, it is a defect in the producer — it is reported back to the producer, never repaired here,
   because a repaired row records what the fixer believed rather than what the run did.
@@ -29,10 +37,7 @@ inbox early, "even if it holds nothing else", as the answer.
 
 ## What is not settled
 
-Retention and the privacy boundary for event payloads are an open question in both RFC-2026-09-08
-and RFC-2026-09-09, and both record it as a policy question rather than a schema one. It is not
-answered here.
-
-Until that boundary is written down, this directory operates under an explicit assumption: **only
-rows whose `repository_state.repository` is a public repository land here.** It is an assumption,
-not a rule derived from a decision — when the policy is written, it supersedes this paragraph.
+Retention and the privacy boundary for event payloads. How long the artefact `event_stream.ref`
+points at is kept, and where exactly the line between metadata and content falls, are open in both
+RFC-2026-09-08 and RFC-2026-09-09, and both record them as a policy question rather than a schema
+one. Neither is answered here, and the conventions above do not depend on the answer.

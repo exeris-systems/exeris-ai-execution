@@ -38,7 +38,7 @@
       ],
       "properties": {
         "fingerprint": {
-          "description": "Content-addressed identity of the task, stable across the models that attempt it. A fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
+          "description": "An opaque, stable identity for the task: the same value on every arm of a paired group, a different value for a different task. Assigned when the task is created, or derived as a keyed digest (HMAC) under a key the producer keeps private — never a bare hash of the task's text.\n\nA plain digest of a short description is a confirmation oracle: anyone who guesses the sentence verifies it against a published row. That would reopen through this field exactly the leak `scope` was closed to prevent, in a form that looks safe because it looks like a hash.\n\nA fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
           "type": "string",
           "minLength": 8,
           "maxLength": 128
@@ -50,10 +50,10 @@
           "maxLength": 64
         },
         "scope": {
-          "description": "What the workload was asked to change or produce, in the vocabulary of its domain.",
+          "description": "What kind of workload this was, as a term from the domain's vocabulary — `adr-amendment`, `frontmatter-backfill`, `spi-javadoc`. Left open here and narrowed to an enum by the composing schema, exactly as `verdict.base.schema.json` leaves `scope_class` open.\n\nDeliberately not prose. Free text here would be the one field in the record carrying semantics, and `Add slab-pool eviction under io_uring` or `prepare pricing for design partner X` is a roadmap in a single row — a leak that does not depend on the source repository being private, because a public repository can carry a workload that is not. What the run did is held by `fingerprint`, which is opaque; what kind of thing it was is held here, from a closed list. A vocabulary is also the only form of this field that can be grouped on, which prose never could.",
           "type": "string",
-          "minLength": 3,
-          "maxLength": 128
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64
         },
         "phase": {
           "description": "Which phase of the workload this run covers, where a planner decomposed it. Absent until V2 produces phase-level outcomes; rows that carry it and rows that do not are never averaged together.",
@@ -130,7 +130,7 @@
       }
     },
     "agent": {
-      "description": "RFC table: `Agent` / `Model` / `Harness` — provider, model id, snapshot, client + version, system-prompt hash. All required: a row without them is uninterpretable once a snapshot moves, and SCB §8 defines a model reference as id + snapshot + harness + system-prompt hash, so a partial reference is not a reference.",
+      "description": "RFC table: `Agent` / `Model` / `Harness` — provider, model id, snapshot, client + version, system-prompt hash. All required: a row without them is uninterpretable once a snapshot moves. SCB §8 defines a model reference as id + snapshot + harness + system-prompt hash, and this component is that reference with one substitution it states rather than hides — `system_prompt_sha256` covers the instructions the repository controls, and `harness.client` with `harness.version` stands in for the client's own system prompt, which a producer under a hosted action cannot read. The substitution is a weakening, not an equivalence: a client that changes its system prompt without changing its version is invisible here. That is why the harness is part of the reference, and why a harness change writes a new `instrument.fence`.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -192,6 +192,7 @@
       "additionalProperties": false,
       "required": [
         "repository",
+        "visibility",
         "commit",
         "bundle_version",
         "dirty"
@@ -202,6 +203,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "visibility": {
+          "description": "The repository's visibility in ADR-020's taxonomy, which has exactly these two values; `public-staged` is deprecated and never appears here. Recorded at capture time rather than resolved later: a repository can be opened afterwards, and a row is subject to the visibility in force when it was written.\n\nThe producer maps the host's own answer onto this vocabulary fail-closed. `gh repo view --json visibility` returns `PUBLIC | PRIVATE | INTERNAL`; only `PUBLIC` becomes `public`, and everything else — including a visibility the producer could not establish — becomes `enterprise-private`.",
+          "enum": [
+            "public",
+            "enterprise-private"
+          ]
         },
         "commit": {
           "type": "string",
@@ -546,6 +554,33 @@
         "required": [
           "human_baseline"
         ]
+      }
+    },
+    {
+      "$comment": "A group planned without a human arm cannot acquire one afterwards. A baseline attached to a `none` group is a post-hoc addition to a preregistered design, which is what `pairing` exists to prevent; the correct record of a human attempt made later is a new group declared with `baseline: human`.",
+      "if": {
+        "required": [
+          "pairing"
+        ],
+        "properties": {
+          "pairing": {
+            "required": [
+              "baseline"
+            ],
+            "properties": {
+              "baseline": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "human_baseline"
+          ]
+        }
       }
     }
   ]
