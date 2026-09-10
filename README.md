@@ -101,10 +101,6 @@ because a group is declared before its arms run — including a group whose repo
 
 ## Open questions
 
-- **The oracle for the review domain — decided, not open.** ADR-086 §D settles it, at PROPOSED
-  status, so the reference firms up when that ADR is accepted. What a producer of rows needs from
-  it here: the review work is two domains with two oracles of different standing, not one. Which
-  domains, which oracles and what each verdict is admissible as are in the ADR, not repeated here.
 - **The telemetry sink contract.** Its payload, its versioning and which bundle version ships it are
   open in RFC-2026-09-08.
 - **Whether a CI runner emits an execution log usable as `execution.event_stream`.** Unverified. It
