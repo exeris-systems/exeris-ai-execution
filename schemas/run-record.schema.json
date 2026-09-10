@@ -1,0 +1,489 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Run record (V0)",
+  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the single exception: it is required on paired tasks, which are V0's primary collection mode, and its absence is what stops an unpaired row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "started_at",
+    "workload",
+    "agent",
+    "repository_state",
+    "execution",
+    "accounting",
+    "oracle",
+    "outcome",
+    "instrument"
+  ],
+  "properties": {
+    "run_id": {
+      "description": "Identity of this run. Not from the RFC table: a row that cannot be named cannot be de-duplicated, referenced by a fence, or paired.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "started_at": {
+      "description": "When the run began, RFC 3339, UTC. Not from the RFC table: a fence is dated, so a row that is not dated is on neither side of it.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "workload": {
+      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. The join key for paired runs: two rows are the same workload when their fingerprints agree.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "domain",
+        "scope"
+      ],
+      "properties": {
+        "fingerprint": {
+          "description": "Content-addressed identity of the task, stable across the models that attempt it. A fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "domain": {
+          "description": "The workload's domain. Left open and narrowed by the composing schema. V0's first domain is documentation and the agent layer, and it is an instrumentation and calibration workload, not a representative one.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "scope": {
+          "description": "What the workload was asked to change or produce, in the vocabulary of its domain.",
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "phase": {
+          "description": "Which phase of the workload this run covers, where a planner decomposed it. Absent until V2 produces phase-level outcomes; rows that carry it and rows that do not are never averaged together.",
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "complexity": {
+          "description": "The annotation, deliberately three-valued. RFC §Risks records that a single-rater, unanchored 1–10 scale is mostly noise and is the step skipped in week three, and that `too-weak | appropriate | overkill` is cheap and carries most of the signal. It judges the model that ran against this workload, it is an annotation, and it is never an input to anything V0 emits.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "judgement",
+            "rater"
+          ],
+          "properties": {
+            "judgement": {
+              "enum": [
+                "too-weak",
+                "appropriate",
+                "overkill"
+              ]
+            },
+            "rater": {
+              "description": "Who made the judgement. The dataset, the oracle and the annotation currently share one author, which is exactly SCB §0.3's warning; naming the rater is the least this record can do about it.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "rated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
+    "agent": {
+      "description": "RFC table: `Agent` / `Model` / `Harness` — provider, model id, snapshot, client + version, system-prompt hash. All required: a row without them is uninterpretable once a snapshot moves, and SCB §8 defines a model reference as id + snapshot + harness + system-prompt hash, so a partial reference is not a reference.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model_id",
+        "model_snapshot",
+        "harness",
+        "system_prompt_sha256"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "model_id": {
+          "description": "The vendor's identifier for the model, as the vendor writes it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "model_snapshot": {
+          "description": "The dated or versioned snapshot behind `model_id`. An id whose snapshot moved names a different model, and rows either side of the move are not comparable.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "harness": {
+          "description": "The client that ran the model, and its version. One model under two clients is two harnesses, not one.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "client",
+            "version"
+          ],
+          "properties": {
+            "client": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "system_prompt_sha256": {
+          "description": "SHA-256 of the system prompt in force, so a prompt change is visible as a change rather than as noise in the outcomes.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "repository_state": {
+      "description": "RFC table: `RepositoryState` — commit, bundle version, dirty flag. \"The same repository state\" is otherwise unverifiable, and it is the other half of the paired-run join key.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "commit",
+        "bundle_version",
+        "dirty"
+      ],
+      "properties": {
+        "repository": {
+          "description": "Which repository the commit is in. Not from the RFC table: a commit sha alone cannot be resolved across twenty sibling repositories.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "bundle_version": {
+          "description": "The pinned `exeris-agents` bundle version in the checkout. The bundle carries the rules the run was subject to, so a bundle change is a change to the run's conditions.",
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "dirty": {
+          "description": "Whether the working tree carried uncommitted changes. Required, and `false` is a claim: without it, `commit` is an assertion about a tree nobody checked.",
+          "type": "boolean"
+        }
+      }
+    },
+    "execution": {
+      "description": "RFC table: `Execution` — event stream, tool calls, turns, wall time, with metadata separated from potentially sensitive content. That separation is this component's shape: the counts are here, the stream is referenced. Prompts, file content and tool arguments never appear in a run record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "turns",
+        "tool_calls",
+        "wall_time_ms",
+        "event_stream"
+      ],
+      "properties": {
+        "turns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_time_ms": {
+          "description": "Wall time is one of the two units that survive a comparison across models (SCB §7.1); token counts are not.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "event_stream": {
+          "description": "A reference to the normalised event stream, never the stream itself. `sha256` keeps the reference verifiable after an artefact retention window has taken the stream away.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "sha256",
+            "event_count"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "event_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "accounting": {
+      "description": "RFC table: `Accounting` — mode, usage, provider-reported cost. Under a subscription there is no per-run price, and mixing modes in one column corrupts every later cost conclusion, undetectably. The `allOf` below is that sentence made enforceable: only an `api` row may carry a cost.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "description": "`api`: a per-run price exists and the provider reported it. `subscription`: no per-run price exists, and none may be imputed. `local`: the cost is hardware and wall time, and is not a provider figure.",
+          "enum": [
+            "api",
+            "subscription",
+            "local"
+          ]
+        },
+        "usage": {
+          "description": "Token counts. Comparable only within one model (SCB §7.1); across models the units are USD and wall time.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cache_read_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cache_write_tokens": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "provider_reported_cost": {
+          "description": "What the provider billed for this run, as the provider reported it — never a figure this layer computed from a price list.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "properties": {
+            "amount": {
+              "type": "number",
+              "minimum": 0
+            },
+            "currency": {
+              "const": "USD"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "Under a subscription or a local model there is no per-run price. A cost on such a row is imputed, and an imputed cost is indistinguishable from a reported one once it is in the column.",
+          "if": {
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "subscription",
+                  "local"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "provider_reported_cost"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "oracle": {
+      "description": "RFC table: `Oracle` — id, version, and calibration state. Without the calibration state, an average across six months of drifting oracles looks scientific and means nothing. `calibration` is required for that reason, not as a nicety.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "calibration"
+      ],
+      "properties": {
+        "id": {
+          "description": "Which oracle judged this run. Left open and narrowed by the composing schema: V0's is the documentation and agent-layer guardrail suite, whose scope is structural consistency and never whether the work is any good. The System Construction Benchmark becomes a second implementation behind the same interface at its Phase 4, carrying its own calibration state.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "calibration": {
+          "description": "The oracle's own mutation-suite result at the time of this run — for example suite `docs-mutation-v1`, status `pass`, result `8/8`. `status` is three-valued like `checks_run` in `verdict.base.schema.json`: a suite that has not been run is `not-run`, and `not-run` is not a pass.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "suite",
+            "status",
+            "result"
+          ],
+          "properties": {
+            "suite": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "maxLength": 64
+            },
+            "status": {
+              "enum": [
+                "pass",
+                "fail",
+                "not-run"
+              ]
+            },
+            "result": {
+              "description": "The suite's score as it was published, e.g. `8/8`.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "run_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
+    "outcome": {
+      "description": "RFC table: `Outcome` — fail-closed. A run whose gates did not run is `UNKNOWN`, never a pass. `FALSE_DONE` is the run that claimed completion the oracle contradicts; `UNREACHABLE` is the run that never got far enough to be judged.",
+      "enum": [
+        "TRUE_DONE",
+        "FALSE_DONE",
+        "UNKNOWN",
+        "UNREACHABLE"
+      ]
+    },
+    "instrument": {
+      "description": "RFC table: `InstrumentVersion` / `Fence` — capture version, and the dated fence in force. Rows either side of a fence are never summarised in one figure, so a row that does not name its fence cannot be summarised at all.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_version",
+        "fence"
+      ],
+      "properties": {
+        "capture_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "fence": {
+          "description": "The dated fence in force when this row was written. A change to the oracle, the harness, the dispatcher or a model snapshot writes a new one; rows before it are marked, never deleted.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(-[a-z0-9]+(-[a-z0-9]+)*)?$"
+        }
+      }
+    },
+    "human_baseline": {
+      "description": "RFC table: `HumanBaseline` — on paired tasks: human time, outcome, changes. A V0 requirement, not a follow-up: `Haiku: $0.10, 95% TRUE_DONE` reads as a triumph until one learns a human does the same work in seven minutes and Haiku takes forty-two, at which point the economic interpretation inverts. A cost figure with no human reference point is not interpretable, only quotable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_time_ms",
+        "outcome"
+      ],
+      "properties": {
+        "wall_time_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outcome": {
+          "description": "Judged by the same oracle at the same calibration state, or the baseline is not a baseline.",
+          "enum": [
+            "TRUE_DONE",
+            "FALSE_DONE",
+            "UNKNOWN",
+            "UNREACHABLE"
+          ]
+        },
+        "changes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "files_changed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "insertions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "deletions": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "Fail-closed, from RFC-2026-09-08 §Testing: until the oracle's mutation suite passes as a suite, V0 records outcomes as UNKNOWN. An oracle whose PASS has never been contradicted by a known-broken input is unvalidated, so neither its TRUE_DONE nor its FALSE_DONE is admissible as a label.",
+      "if": {
+        "required": [
+          "oracle"
+        ],
+        "properties": {
+          "oracle": {
+            "required": [
+              "calibration"
+            ],
+            "properties": {
+              "calibration": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "fail",
+                      "not-run"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "UNKNOWN",
+              "UNREACHABLE"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
