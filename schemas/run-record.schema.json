@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Run record (V0)",
-  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the exception, and it is required by constraint rather than by prose: a row whose group declared a human arm (`pairing.baseline: human`) must carry it, and a group that declared none may not carry it at all, because a baseline attached afterwards is a post-hoc addition to a preregistered design. Its absence is what stops a row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
+  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the exception, and it is required by constraint rather than by prose — the relationship those constraints enforce is stated on `pairing.baseline`. Its absence is what stops a row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -28,7 +28,7 @@
       "format": "date-time"
     },
     "workload": {
-      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. `fingerprint` identifies the task, under a stability qualification stated on the field itself; the key that joins one preregistered comparison is `pairing.group_id`. They are deliberately different keys, and the difference is stated on `fingerprint` itself.",
+      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. `fingerprint` identifies the task, under a stability qualification stated on the field itself; the key that joins one preregistered comparison is `pairing.group_id`. They are deliberately different keys.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -110,18 +110,18 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
         },
         "arm": {
-          "description": "Which slot of the plan this row fills. Unique within `group_id`: a repeated condition is separate slots — `frontier-1`, `frontier-2`, `frontier-3` — never one label on three rows. That is what lets `arms_planned` stay a count of expected rows, so an incomplete group is still detected when the missing rows are replicates of one condition. SCB's own design, 3 runs × 3 arms, is nine slots here, not three.\n\nIt labels the slot, not the model — `agent` already names that — and variance within one condition is recovered by grouping the group's rows on `agent`, which is what `agent` is for. A second field for replicate count would only mean something in terms of this one, so there is not one.\n\nUniqueness is a rule across files, which a schema cannot see; the inbox validator checks it — a validator that does not exist yet, so the rule is machine-checkable and not yet machine-checked.",
+          "description": "Which slot of the plan this row fills. Unique within `group_id`: a repeated condition is separate slots — `frontier-1`, `frontier-2`, `frontier-3` — never one label on three rows. That is what lets `arms_planned` stay a count of expected rows, so an incomplete group is still detected when the missing rows are replicates of one condition. SCB's own design, 3 runs × 3 arms, is nine slots here, not three.\n\nIt labels the slot, not the model — `agent` already names that — and variance within one condition is recovered by grouping the group's rows on `agent`, which is what `agent` is for. A second field for replicate count would only mean something in terms of this one, so there is not one.\n\nThis is a rule across files, which this schema cannot express; the inbox validator owns it — see `inbox/README.md`, `## Rules a schema cannot see`.",
           "type": "string",
           "minLength": 1,
           "maxLength": 64
         },
         "arms_planned": {
-          "description": "How many rows the group was planned to contain, so an incomplete group is detectable without inferring what was intended. It counts the model arms: a human arm produces `human_baseline` on every row of the group and is not itself a row.\n\nBecause `arm` is unique within a group, this is exactly the number of distinct `arm` values a complete group carries, replicates of one condition included, since those are separate slots.",
+          "description": "How many rows the group was planned to contain, so an incomplete group is detectable without inferring what was intended. It counts the model arms: a human arm produces `human_baseline` on every row of the group and is not itself a row.\n\nWhat makes this count exact is stated on `arm`.",
           "type": "integer",
           "minimum": 1
         },
         "baseline": {
-          "description": "Declared when the group is planned, not discovered when it finishes. `human`: a human arm ran, and every row of the group carries `human_baseline` — enforced by a constraint below. `none`: no human reference exists, which is legitimate and is the case for the cheapest groups this layer has (a CI runner matrix is a paired run without a human arm), and which means the group can never carry an economic claim. A cost figure with no human reference point is not interpretable, only quotable; this field is that sentence in a form V1 can read without re-deciding it row by row.",
+          "description": "Declared when the group is planned, not discovered when it finishes. `human`: a human arm ran, and every row of the group carries `human_baseline` — enforced by a constraint below. `none`: no human reference exists, which is legitimate and is the case for the cheapest groups this layer has (a CI runner matrix is a paired run without a human arm), and which means the group can never carry an economic claim, for the reason stated on `human_baseline`; this field is that reason in a form V1 can read without re-deciding it row by row.",
           "enum": [
             "human",
             "none"
@@ -130,7 +130,7 @@
       }
     },
     "agent": {
-      "description": "RFC table: `Agent` / `Model` / `Harness` — provider, model id, snapshot, client + version, system-prompt hash. All required: a row without them is uninterpretable once a snapshot moves. SCB §8 defines a model reference as id + snapshot + harness + system-prompt hash, and this component is that reference with one substitution it states rather than hides — `system_prompt_sha256` covers the instructions the repository controls, and `harness.client` with `harness.version` stands in for the client's own system prompt, which a producer under a hosted action cannot read. The substitution is a weakening, not an equivalence: a client that changes its system prompt without changing its version is invisible here. That is why the harness is part of the reference, and why a harness change writes a new `instrument.fence`.",
+      "description": "RFC table: `Agent` / `Model` / `Harness` — provider, model id, snapshot, client + version, system-prompt hash. All required: a row without them is uninterpretable once a snapshot moves. SCB §8 defines a model reference as id + snapshot + harness + system-prompt hash, and this component is that reference with one substitution it states rather than hides — `system_prompt_sha256` covers the instructions the repository controls, and `harness.client` with `harness.version` stands in for the client's own system prompt, which a producer under a hosted action cannot read. The substitution is a weakening, not an equivalence, and the hole it leaves is stated on `system_prompt_sha256`. That is why the harness is part of the reference, and why a harness change writes a new `instrument.fence`.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -187,7 +187,7 @@
       }
     },
     "repository_state": {
-      "description": "RFC table: `RepositoryState` — commit, bundle version, dirty flag. \"The same repository state\" is otherwise unverifiable. It is not a join key: the arms of one comparison share a repository state by definition, so within a `group_id` this is an invariant rather than a key, and the key is `pairing.group_id`. The inbox validator checks it — a validator that does not exist yet, so the rule is machine-checkable and not yet machine-checked.",
+      "description": "RFC table: `RepositoryState` — commit, bundle version, dirty flag. \"The same repository state\" is otherwise unverifiable. It is not a join key: the arms of one comparison share a repository state by definition, so within a `group_id` this is an invariant rather than a key, and the key is `pairing.group_id`. This is a rule across files, which this schema cannot express; the inbox validator owns it — see `inbox/README.md`, `## Rules a schema cannot see`.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -246,7 +246,7 @@
           "minimum": 0
         },
         "wall_time_ms": {
-          "description": "Wall time is one of the two units that survive a comparison across models (SCB §7.1); token counts are not.",
+          "description": "Wall time is one of the two units that survive a comparison across models — see `accounting.usage`.",
           "type": "integer",
           "minimum": 0
         },
@@ -448,7 +448,7 @@
       }
     },
     "human_baseline": {
-      "description": "RFC table: `HumanBaseline` — on paired tasks: human time, outcome, changes. A V0 requirement, not a follow-up: `Haiku: $0.10, 95% TRUE_DONE` reads as a triumph until one learns a human does the same work in seven minutes and Haiku takes forty-two, at which point the economic interpretation inverts. A cost figure with no human reference point is not interpretable, only quotable.\n\nIt is duplicated onto every row of its group, and duplication has one failure mode: divergence. Two rows of one group carrying different human baselines are not one row being wrong — they are a group that cannot be interpreted. Every `human_baseline` within a `group_id` must therefore be byte-for-byte identical — a rule across files, and one that makes the human-arm-first protocol observable as a side effect: a row written before the baseline existed cannot be identical to the rows written after it. The inbox validator checks it — a validator that does not exist yet, so the rule is machine-checkable and not yet machine-checked.\n\nThe trigger for outgrowing this shape, named here so it is recognised rather than discovered: the moment this object needs a second field about the *human* rather than about the *work*, it stops being a field and becomes a record that rows reference. `who` is the first such field, so the trigger is close.",
+      "description": "RFC table: `HumanBaseline` — on paired tasks: human time, outcome, changes. A V0 requirement, not a follow-up: `Haiku: $0.10, 95% TRUE_DONE` reads as a triumph until one learns a human does the same work in seven minutes and Haiku takes forty-two, at which point the economic interpretation inverts. A cost figure with no human reference point is not interpretable, only quotable.\n\nIt is duplicated onto every row of its group — `pairing.baseline` owns that relationship — and duplication has one failure mode: divergence. Two rows of one group carrying different human baselines are not one row being wrong — they are a group that cannot be interpreted. Every `human_baseline` within a `group_id` must therefore be byte-for-byte identical — a rule across files, and one that makes the human-arm-first protocol observable as a side effect: a row written before the baseline existed cannot be identical to the rows written after it. This is a rule across files, which this schema cannot express; the inbox validator owns it — see `inbox/README.md`, `## Rules a schema cannot see`.\n\nThe trigger for outgrowing this shape, named here so it is recognised rather than discovered: the moment this object needs a second field about the *human* rather than about the *work*, it stops being a field and becomes a record that rows reference. `who` is the first such field, so the trigger is close.",
       "type": "object",
       "additionalProperties": false,
       "required": [
