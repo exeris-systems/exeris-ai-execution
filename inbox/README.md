@@ -13,14 +13,13 @@ inbox early, "even if it holds nothing else", as the answer.
 - **One file per run, `inbox/<YYYY-MM-DD>/<run_id>.json`, dated by `started_at` in UTC.** One run
   per file so a row can be added, corrected or quarantined without rewriting its neighbours; UTC so
   the directory a row lands in does not depend on where it was produced.
-- **Public rows only.** Every row here carries `repository_state.visibility: public`; an
-  `enterprise-private` row belongs in the private inbox of the sibling repository
-  `exeris-ai-execution-enterprise`, which does not exist yet — ADR-018's public spec beside a private
-  decoder, `exeris-benchmarks` beside `exeris-benchmarks-enterprise`. The schema and the tooling stay
-  public because a contract is public; it is the rows that visibility protects. The rule is
-  machine-checkable but **not yet machine-checked**: nothing in this repository validates an inbox,
-  and a JSON Schema cannot, because a schema does not know which repository it is being validated in.
-  An inbox validator is therefore the first tooling this repository needs.
+- **One visibility per inbox.** Every row's `repository_state.visibility` must equal the
+  `visibility` `inbox.yaml` declares; that file is the authority, and a second copy of the value here
+  is what would go stale. A row that does not match belongs in the sibling repository's inbox,
+  `exeris-ai-execution-enterprise`, which does not exist yet — ADR-018's public spec beside a
+  private decoder, `exeris-benchmarks` beside `exeris-benchmarks-enterprise`. The rule is
+  machine-checkable but **not yet machine-checked**: it is a rule across files, and a schema sees one
+  document at a time.
 - **Every file validates against `../schemas/run-record.schema.json`.** A file that does not is not
   a row, it is a defect in the producer — it is reported back to the producer, never repaired here,
   because a repaired row records what the fixer believed rather than what the run did.

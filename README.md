@@ -97,13 +97,12 @@ or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
 
 Private rows do not land in this repository's `inbox/`: `exeris-ai-execution-enterprise` will hold
 them, and it does not exist yet — which is fine while V0's domain is documentation in public
-repositories, and is the thing to build before the first enterprise row, for the same reason
-`inbox/` itself was created early.
+repositories, and it is to be created early for the same reason `inbox/` was.
 
 `fingerprint` values of the `reg:` class come from a private task registry that does not exist
-yet. It is the first thing `exeris-ai-execution-enterprise` must hold, and it is needed before the
-first *planned pair* rather than before the first enterprise row, because a group is declared
-before its arms run — including a group whose repository is public.
+yet. It is the first thing `exeris-ai-execution-enterprise` must hold, and it is what makes that
+repository needed before the first *planned pair* rather than before the first enterprise row,
+because a group is declared before its arms run — including a group whose repository is public.
 
 ## Open questions
 
