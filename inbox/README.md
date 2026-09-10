@@ -11,8 +11,9 @@ inbox early, "even if it holds nothing else", as the answer.
 ## Convention
 
 - **One file per run, `inbox/<YYYY-MM-DD>/<run_id>.json`, dated by `started_at` in UTC.** One run
-  per file so a row can be added, corrected or quarantined without rewriting its neighbours; UTC so
-  the directory a row lands in does not depend on where it was produced.
+  per file so a row can be added, corrected or quarantined without rewriting its neighbours —
+  corrected by filing a new row, never by editing the file in place, as the rule below requires; UTC
+  so the directory a row lands in does not depend on where it was produced.
 - **One visibility per inbox.** A row that does not match belongs in the sibling repository's inbox,
   `exeris-ai-execution-enterprise`, which does not exist yet — ADR-018's public spec beside a private
   decoder, `exeris-benchmarks` beside `exeris-benchmarks-enterprise`. The rule itself is rule 1 of
@@ -25,9 +26,10 @@ inbox early, "even if it holds nothing else", as the answer.
   material may be customer or private-repository content. The artefact `event_stream.ref` points at
   is stored outside this directory for exactly that reason: the row carries its digest and its event
   count, the content stays elsewhere.
-- **Rows are marked, never deleted.** A correction is a new row and a dated fence; rows either side
-  of a fence are never summarised in one figure. Deleting a row destroys the evidence that the
-  instrument was once wrong.
+- **Rows are appended, marked, never rewritten or deleted.** A correction is a new row and a dated
+  fence; rows either side of a fence are never summarised in one figure. Deleting a row destroys the
+  evidence that the instrument was once wrong, and rewriting one destroys the same evidence for the
+  same reason — an edited row records what the editor later believed rather than what the run did.
 - **Nothing here is interpreted.** No aggregation, no comparison across rows, no sentence about
   which model did better. That is V1 and later, and doing it here would break the V0 rule.
 
@@ -54,7 +56,7 @@ from the git remote.
 4. **`arm` is unique within a `group_id`.** Otherwise `arms_planned` sees a complete group while a
    condition is missing replicates.
 
-### The one exception to "rows are marked, never deleted"
+### The one exception to "rows are appended, marked, never rewritten or deleted"
 
 A row that lands here without matching the visibility `inbox.json` declares puts the two
 conventions in collision; where that declared visibility is `public`, it is published already, by
