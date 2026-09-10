@@ -18,7 +18,9 @@ inbox early, "even if it holds nothing else", as the answer.
   because a repaired row records what the fixer believed rather than what the run did.
 - **Metadata only.** Prompts, file content and tool arguments do not enter this directory in any
   form, because `execution.event_stream` references the stream rather than carrying it, and that
-  material may be customer or private-repository content.
+  material may be customer or private-repository content. The artefact `event_stream.ref` points at
+  is stored outside this directory for exactly that reason: the row carries its digest and its event
+  count, the content stays elsewhere.
 - **Rows are marked, never deleted.** A correction is a new row and a dated fence; rows either side
   of a fence are never summarised in one figure. Deleting a row destroys the evidence that the
   instrument was once wrong.

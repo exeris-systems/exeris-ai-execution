@@ -21,6 +21,31 @@ That is all there is today, and deliberately so: no store, no analysis, no oracl
 no router. A capture shape that has never met a real row is the thing most likely to be wrong, so
 the shape ships first and alone.
 
+## The paired-run protocol
+
+Paired runs — the same task across N models — are the primary collection mode, because they answer
+the one useful question at a fraction of the n that observational rows across heterogeneous tasks
+would need. A group is declared before any of its arms runs, under a `pairing.group_id` assigned in
+advance; it is never recovered afterwards by grouping rows on `workload.fingerprint`. A group
+assigned in advance is an artefact of the design, and a group recovered by a query is a query.
+
+**The human arm runs first**, for two reasons. The baseline is then already known when each model
+row is written, so no row has to be rewritten later — which `inbox/` forbids anyway. And the human
+has not seen a model's output, so the baseline is not contaminated by it. A group with no human arm
+declares `pairing.baseline: none`; it is a legitimate group, and it never carries an economic claim.
+
+## For producers of rows
+
+- **`agent.system_prompt_sha256` hashes the instructions the repository controls** — the workflow's
+  prompt text, the routine file it points at, and the agent files at that commit. Not the client's
+  own system prompt, which a producer usually cannot read and whose changes `harness.version`
+  already carries.
+- **The artefact `execution.event_stream.ref` points at is stored outside `inbox/`.** It may contain
+  prompts, file content and tool arguments; the row carries only its digest and its event count.
+- **A runner may report a USD figure under a subscription** by applying a price list to the token
+  counts. That figure is imputed rather than reported, the schema rejects it on a non-`api` row, and
+  the producer is expected to drop it deliberately rather than never to have looked for it.
+
 ## Where the decisions are
 
 - `exeris-docs/rfc/RFC-2026-09-08-ai-execution-layer.md` — accepted 2026-09-09. It settles the
@@ -58,3 +83,17 @@ contradicted by a known-broken input is unvalidated, so no outcome this reposito
 record today is a pass: every row is `UNKNOWN`, or `UNREACHABLE` where a run never got far enough
 to be judged. The schema enforces exactly that — a row whose `oracle.calibration.status` is `fail`
 or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
+
+## Open questions
+
+- **The oracle for the review domain.** The L1 gates judge a pull request, not the reviewer that
+  reviewed it, so `docs-guardrails` on a review row does not mean what it means on a sweep row.
+  `workload.domain` keeps the two apart from the first row; which oracle judges a review is
+  undecided. It sits beside the sink question, not behind it.
+- **The telemetry sink contract.** Its payload, its versioning and which bundle version ships it are
+  open in RFC-2026-09-08.
+- **Whether a CI runner emits an execution log usable as `execution.event_stream`.** Unverified. It
+  needs one real run — like the question in RFC-2026-09-09 about whether a hosted action honours
+  `.claude/settings.json` hooks.
+- **Retention and the privacy boundary for event payloads.** A policy question in both RFCs;
+  `inbox/README.md` states the assumption this repository runs under meanwhile.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Run record (V0)",
-  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the single exception: it is required on paired tasks, which are V0's primary collection mode, and its absence is what stops an unpaired row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
+  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the exception, and it is now required by a constraint rather than by prose: any row whose group declared a human arm (`pairing.baseline: human`) must carry it, and its absence is what stops a row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -44,7 +44,7 @@
           "maxLength": 128
         },
         "domain": {
-          "description": "The workload's domain. Left open and narrowed by the composing schema. V0's first domain is documentation and the agent layer, and it is an instrumentation and calibration workload, not a representative one.",
+          "description": "The workload's domain. Left open and narrowed by the composing schema. V0's first domain is documentation and the agent layer, and it is an instrumentation and calibration workload, not a representative one.\n\nTwo workloads whose oracle judges different things are two domains however alike they look. A sweep is judged on output the agent produced; a review is judged on a pull request the agent did not write. Averaging their outcomes under one domain name produces exactly the scientific-looking and meaningless figure this record exists to prevent, so the distinction is made here, from the first row, and not recovered later.",
           "type": "string",
           "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
           "maxLength": 64
@@ -62,12 +62,13 @@
           "maxLength": 64
         },
         "complexity": {
-          "description": "The annotation, deliberately three-valued. RFC §Risks records that a single-rater, unanchored 1–10 scale is mostly noise and is the step skipped in week three, and that `too-weak | appropriate | overkill` is cheap and carries most of the signal. It judges the model that ran against this workload, it is an annotation, and it is never an input to anything V0 emits.",
+          "description": "The annotation, deliberately three-valued. RFC §Risks records that a single-rater, unanchored 1–10 scale is mostly noise and is the step skipped in week three, and that `too-weak | appropriate | overkill` is cheap and carries most of the signal. It judges the model that ran against this workload, it is an annotation, and it is never an input to anything V0 emits.\n\n`rater` and `rated_at` are required with it, and neither is decoration. V1's exit criterion is \"annotation noise quantified\", which is computable only as agreement between raters, so a row that does not say who judged it leaves a second rater nothing to be compared against. `rated_at` is the other axis: its distance from `started_at` is the only evidence that a judgement was made on the run rather than from a memory of it.",
           "type": "object",
           "additionalProperties": false,
           "required": [
             "judgement",
-            "rater"
+            "rater",
+            "rated_at"
           ],
           "properties": {
             "judgement": {
@@ -78,16 +79,53 @@
               ]
             },
             "rater": {
-              "description": "Who made the judgement. The dataset, the oracle and the annotation currently share one author, which is exactly SCB §0.3's warning; naming the rater is the least this record can do about it.",
+              "description": "Who made the judgement. Required from the first row because inter-rater agreement is not reconstructible later, and because the dataset, the oracle and the annotation currently share one author, which is exactly SCB §0.3's warning.",
               "type": "string",
               "minLength": 1,
               "maxLength": 64
             },
             "rated_at": {
+              "description": "When the judgement was made, RFC 3339, UTC.",
               "type": "string",
               "format": "date-time"
             }
           }
+        }
+      }
+    },
+    "pairing": {
+      "description": "Not from the RFC table. Paired runs are the RFC's primary collection mode — the same task across N models, at far smaller n than observational rows across heterogeneous tasks would need — and this component exists so the group is declared before the arms run rather than recovered afterwards by grouping on `workload.fingerprint` and `repository_state`. That difference is the preregistration discipline itself: a group assigned in advance is an artefact of the design; a group recovered by a query is a query, and a query can be re-run until it says something.\n\nA pointer to a counterpart run was considered and rejected. The first arm written cannot know the run_id of an arm that does not exist yet, so it would have to be rewritten, which `inbox/` forbids; and at three arms a one-sided pointer becomes a clique to maintain.\n\nAbsent on an unpaired observational row.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "arm",
+        "arms_planned",
+        "baseline"
+      ],
+      "properties": {
+        "group_id": {
+          "description": "Assigned before any arm runs. Every arm of one group carries the same value, and no arm assigns it.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "arm": {
+          "description": "Which arm of the group this row is. It labels the arm, not the model — `agent` already names that — so a group may run one model twice.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "arms_planned": {
+          "description": "How many rows the group was planned to contain, so an incomplete group is detectable without inferring what was intended. It counts the model arms: a human arm produces `human_baseline` on every row of the group and is not itself a row.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "baseline": {
+          "description": "Declared when the group is planned, not discovered when it finishes. `human`: a human arm ran, and every row of the group carries `human_baseline` — enforced by a constraint below. `none`: no human reference exists, which is legitimate and is the case for the cheapest groups this layer has (a CI runner matrix is a paired run without a human arm), and which means the group can never carry an economic claim. A cost figure with no human reference point is not interpretable, only quotable; this field is that sentence in a form V1 can read without re-deciding it row by row.",
+          "enum": [
+            "human",
+            "none"
+          ]
         }
       }
     },
@@ -142,7 +180,7 @@
           }
         },
         "system_prompt_sha256": {
-          "description": "SHA-256 of the system prompt in force, so a prompt change is visible as a change rather than as noise in the outcomes.",
+          "description": "SHA-256 of the instructions the repository controls: the prompt text in the workflow, the routine file it points at, and the agent files in force at `repository_state.commit`, canonicalised by a method the producer documents. It is deliberately not a hash of the client's own system prompt — under a hosted action that text is not available to the producer at all, and a change to it is already visible as a change to `harness.version`. A change to the canonicalisation is a change to the instrument and writes a new `instrument.fence`. Left undefined, this field fills with whatever was convenient, and a fence then fails to fire on the change that mattered.",
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         }
@@ -205,7 +243,7 @@
           "minimum": 0
         },
         "event_stream": {
-          "description": "A reference to the normalised event stream, never the stream itself. `sha256` keeps the reference verifiable after an artefact retention window has taken the stream away.",
+          "description": "A reference to the run's event record, never the record itself. Under a local runtime that is the dispatcher's normalised stream. In CI, where no sink is wired, it is whatever execution log the runner emits — whether such a log exists in a usable shape has not been verified on a real run and is an open question, not an assumption this schema makes.\n\nWhatever it points at may contain prompts, file content and tool arguments, so the artefact is stored outside `inbox/` and never beside the row. `sha256` keeps the reference verifiable after a retention window has taken the artefact away, and `event_count` keeps the row summarisable once it is gone.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -232,7 +270,7 @@
       }
     },
     "accounting": {
-      "description": "RFC table: `Accounting` — mode, usage, provider-reported cost. Under a subscription there is no per-run price, and mixing modes in one column corrupts every later cost conclusion, undetectably. The `allOf` below is that sentence made enforceable: only an `api` row may carry a cost.",
+      "description": "RFC table: `Accounting` — mode, usage, provider-reported cost. Under a subscription there is no per-run price, and mixing modes in one column corrupts every later cost conclusion, undetectably. The `allOf` below is that sentence made enforceable: only an `api` row may carry a cost.\n\nA runner's own tooling may report a USD figure under a subscription by applying a price list to the token counts. That figure is imputed, not reported, and the constraint below rejects it — but the producer is expected to drop it deliberately, not to have simply failed to look for it.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -326,7 +364,7 @@
       ],
       "properties": {
         "id": {
-          "description": "Which oracle judged this run. Left open and narrowed by the composing schema: V0's is the documentation and agent-layer guardrail suite, whose scope is structural consistency and never whether the work is any good. The System Construction Benchmark becomes a second implementation behind the same interface at its Phase 4, carrying its own calibration state.",
+          "description": "Which oracle judged this run. Left open and narrowed by the composing schema: V0's is the documentation and agent-layer guardrail suite, whose scope is structural consistency and never whether the work is any good. The System Construction Benchmark becomes a second implementation behind the same interface at its Phase 4, carrying its own calibration state.\n\nOne oracle id used across two domains names two different oracles and must never be summarised as one. Which oracle judges a review run — where the L1 gates judge the pull request rather than the reviewer — is not decided; see the open questions in README.md.",
           "type": "string",
           "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
           "maxLength": 64
@@ -483,6 +521,31 @@
             ]
           }
         }
+      }
+    },
+    {
+      "$comment": "A group planned with a human arm carries the baseline on every one of its rows. This is writable at capture time only because the human arm runs first — a protocol condition stated in README.md, which also keeps the human from having seen a model's output. The constraint assumes that protocol; it cannot enforce it.",
+      "if": {
+        "required": [
+          "pairing"
+        ],
+        "properties": {
+          "pairing": {
+            "required": [
+              "baseline"
+            ],
+            "properties": {
+              "baseline": {
+                "const": "human"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "human_baseline"
+        ]
       }
     }
   ]
