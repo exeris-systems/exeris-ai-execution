@@ -58,8 +58,9 @@ from the git remote.
 
 ### The one exception to "rows are marked, never deleted"
 
-A row that lands here marked `enterprise-private` is public from the moment it is committed, and
-the two conventions collide. The visibility rule wins, and the remedy is not a tidy deletion:
+A row that lands here without matching the visibility `inbox.yaml` declares puts the two
+conventions in collision; where that declared visibility is `public`, it is published already, by
+the same commit that filed it. The visibility rule wins, and the remedy is not a tidy deletion:
 remove the row, rewrite the history that carried it, and then treat the content as disclosed and
 handle it as a disclosure — a force-push does not un-publish anything. Record the removal as a
 dated fence and a marker row carrying the run's identifiers and no content, so the dataset still

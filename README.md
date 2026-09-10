@@ -97,7 +97,9 @@ or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
 
 Private rows do not land in this repository's `inbox/`: `exeris-ai-execution-enterprise` will hold
 them, and it does not exist yet — which is fine while V0's domain is documentation in public
-repositories, and it is to be created early for the same reason `inbox/` was.
+repositories, and it is to be created early for the same reason `inbox/` was. What splits that way
+is the rows, never the contract: the schema and the tooling here stay public because a contract is
+public, and it is the rows that visibility protects.
 
 `fingerprint` values of the `reg:` class come from a private task registry that does not exist
 yet. It is the first thing `exeris-ai-execution-enterprise` must hold, and it is what makes that
@@ -118,5 +120,5 @@ because a group is declared before its arms run — including a group whose repo
 - **Retention and the privacy boundary for event payloads.** How long the artefact
   `execution.event_stream.ref` points at is kept, and where the line between metadata and content
   falls, are the open part, and a policy question in both RFCs. What this repository runs under
-  meanwhile is no longer an assumption: `inbox/README.md` carries it as a rule, and its `## Rules a
-  schema cannot see` specifies the inbox validator that will check it.
+  meanwhile is no longer an assumption: `inbox/README.md` carries it as a rule, and its
+  `## Convention` list is where that rule lives — not the cross-file section beside it.

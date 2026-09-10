@@ -28,7 +28,7 @@
       "format": "date-time"
     },
     "workload": {
-      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. `fingerprint` identifies the task over time; the key that joins one preregistered comparison is `pairing.group_id`. They are deliberately different keys, and the difference is stated on `fingerprint` itself.",
+      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. `fingerprint` identifies the task, under a stability qualification stated on the field itself; the key that joins one preregistered comparison is `pairing.group_id`. They are deliberately different keys, and the difference is stated on `fingerprint` itself.",
       "type": "object",
       "additionalProperties": false,
       "required": [
