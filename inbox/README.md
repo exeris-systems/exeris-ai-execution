@@ -10,10 +10,14 @@ inbox early, "even if it holds nothing else", as the answer.
 
 ## Convention
 
-- **One file per run, `inbox/<YYYY-MM-DD>/<run_id>.json`, dated by `started_at` in UTC.** One run
-  per file so a row can be added, corrected or quarantined without rewriting its neighbours —
-  corrected by filing a new row, never by editing the file in place, as the rule below requires; UTC
-  so the directory a row lands in does not depend on where it was produced.
+- **One file per record: a run at `inbox/<YYYY-MM-DD>/runs/<run_id>.json`, a judgement at
+  `inbox/<YYYY-MM-DD>/judgements/<judgement_id>.json`, each dated in UTC by its own timestamp —
+  `started_at` for a run, `judged_at` for a judgement.** One record per file so a row can be added
+  or corrected without rewriting its neighbours — corrected by filing a new row, never by editing
+  the file in place, as the rule below requires; UTC so the directory a record lands in does not
+  depend on where it was produced. The `runs/` and `judgements/` segments are what tell the
+  validator which schema to read a file against; a discriminator field inside the file would have
+  to be guessed at before the file could be validated.
 - **One visibility per inbox.** A row that does not match belongs in the sibling repository's inbox,
   `exeris-ai-execution-enterprise`, which does not exist yet — ADR-018's public spec beside a private
   decoder, `exeris-benchmarks` beside `exeris-benchmarks-enterprise`. The rule itself is rule 1 of
@@ -35,7 +39,7 @@ inbox early, "even if it holds nothing else", as the answer.
 
 ## Rules a schema cannot see
 
-These four rules are the specification of the inbox validator, which does not exist. They live
+These five rules are the specification of the inbox validator, which does not exist. They live
 here because until it does they have no other home — and they are the argument for building it
 before anything analytical: JSON Schema can express none of them, because each is a rule across
 files and a schema sees one document at a time.
@@ -55,6 +59,8 @@ from the git remote.
    being wrong; it is a group that cannot be interpreted.
 4. **`arm` is unique within a `group_id`.** Otherwise `arms_planned` sees a complete group while a
    condition is missing replicates.
+5. **A judgement's `run_id` resolves to a run record in this inbox.** A judgement of a run nobody
+   holds is not a judgement, only an assertion about one.
 
 ### The one exception to "rows are appended, marked, never rewritten or deleted"
 

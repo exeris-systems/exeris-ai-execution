@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Judgement record (V0)",
+  "description": "One verdict on one run, reached after the run ended: a disposition read from a pull request's history once it closed, an SCB judgement of an earlier run, a re-judgement under a later calibration. ADR-086 §C.12a makes it a second record — the run record carries the outcome that was known when the run ended, and a verdict arriving later is appended beside it rather than written into it. One run may have many judgements; a judgement has exactly one run.\n\nThat such a record is appended and never written back is not this schema's rule and is not repeated here: a judgement lands under the same conventions as a run — see `inbox/README.md`.\n\nWhere a field is also a run record field it is a `$ref` to that record's property rather than a copy of it, so a shape has one home and a change to it reaches both records. Where a field is an addition to §C.12a's list, its description says so, as the run record marks its own additions.\n\nThe fail-closed constraint below is the run record's, referenced and not restated: it reads `oracle.calibration.status` and `outcome` here exactly as it reads them there.\n\nThis file carries no `$id`, for the reason `run-record.schema.json` gives.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "judgement_id",
+    "run_id",
+    "oracle",
+    "judged_at",
+    "outcome",
+    "instrument"
+  ],
+  "properties": {
+    "judgement_id": {
+      "description": "Identity of this judgement, in the shape a run's identity has. Not from ADR-086 §C.12a's list: two judgements of one run are two records, and a record that cannot be named cannot be de-duplicated — or filed, since the inbox names a file after the id of the record in it.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "run_id": {
+      "description": "Which run this judges. It resolves to a run record in the same inbox — a rule across files, which this schema cannot express; the inbox validator owns it — see `inbox/README.md`, `## Rules a schema cannot see`.",
+      "$ref": "run-record.schema.json#/properties/run_id"
+    },
+    "oracle": {
+      "description": "Which oracle judged, and the calibration state it stood in when it judged — this judgement's state, not the run's. They are separate readings on purpose: an oracle uncalibrated when the run ended may be calibrated by the time it judges, and it is this reading the fail-closed constraint below is applied to.",
+      "$ref": "run-record.schema.json#/properties/oracle"
+    },
+    "judged_at": {
+      "description": "When the oracle judged, RFC 3339, UTC. Its distance from the run record's `started_at` is what separates a judgement made on the run from one reconstructed long afterwards.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "outcome": {
+      "$ref": "run-record.schema.json#/properties/outcome"
+    },
+    "instrument": {
+      "description": "The capture version and the dated fence in force when this judgement was made — the judgement's own, which need not be the run's: a re-judgement after a fence stands on the far side of it from the run it names. Not from ADR-086 §C.12a's list either: §C.12a reads a run's outcome as the latest judgement within the fence in force, which is not computable unless every judgement says which fence it was made under.",
+      "$ref": "run-record.schema.json#/properties/instrument"
+    },
+    "dispositions": {
+      "description": "What became of each finding in the verdict this run produced. Optional as a whole: an oracle may judge a run without per-finding detail, and outside the review domain there are no findings to dispose of.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding_index",
+          "disposition"
+        ],
+        "properties": {
+          "finding_index": {
+            "description": "Which finding this disposes of, by its position in the verdict's `findings[]`, counting from zero. A position rather than an identifier because `verdict.base.schema.json` gives a finding none — `why` is a clause and several findings may cite the same one, and `location` is optional — and a position is sound only because a published verdict is immutable, so nothing in it moves. Nothing of the finding is copied here: a reader joins to the verdict.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "disposition": {
+            "description": "What the human did with the finding, in `review-disposition`'s three values (ADR-086 §D.15). How each is read from a pull request's history is the oracle's definition and stays with the oracle.",
+            "enum": [
+              "addressed",
+              "overruled",
+              "unresolved"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "run-record.schema.json#/$defs/fail_closed_uncalibrated_oracle"
+    }
+  ]
+}

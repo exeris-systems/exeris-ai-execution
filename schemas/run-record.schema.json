@@ -492,44 +492,7 @@
   },
   "allOf": [
     {
-      "$comment": "Fail-closed, from RFC-2026-09-08 §Testing: until the oracle's mutation suite passes as a suite, V0 records outcomes as UNKNOWN. An oracle whose PASS has never been contradicted by a known-broken input is unvalidated, so neither its TRUE_DONE nor its FALSE_DONE is admissible as a label.",
-      "if": {
-        "required": [
-          "oracle"
-        ],
-        "properties": {
-          "oracle": {
-            "required": [
-              "calibration"
-            ],
-            "properties": {
-              "calibration": {
-                "required": [
-                  "status"
-                ],
-                "properties": {
-                  "status": {
-                    "enum": [
-                      "fail",
-                      "not-run"
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "outcome": {
-            "enum": [
-              "UNKNOWN",
-              "UNREACHABLE"
-            ]
-          }
-        }
-      }
+      "$ref": "#/$defs/fail_closed_uncalibrated_oracle"
     },
     {
       "$comment": "A group planned with a human arm carries the baseline on every one of its rows. This is writable at capture time only because the human arm runs first — a protocol condition stated in README.md, which also keeps the human from having seen a model's output. The constraint assumes that protocol; it cannot enforce it.",
@@ -583,5 +546,47 @@
         }
       }
     }
-  ]
+  ],
+  "$defs": {
+    "fail_closed_uncalibrated_oracle": {
+      "$comment": "Fail-closed, from RFC-2026-09-08 §Testing: until the oracle's mutation suite passes as a suite, V0 records outcomes as UNKNOWN. An oracle whose PASS has never been contradicted by a known-broken input is unvalidated, so neither its TRUE_DONE nor its FALSE_DONE is admissible as a label.",
+      "if": {
+        "required": [
+          "oracle"
+        ],
+        "properties": {
+          "oracle": {
+            "required": [
+              "calibration"
+            ],
+            "properties": {
+              "calibration": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "fail",
+                      "not-run"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "UNKNOWN",
+              "UNREACHABLE"
+            ]
+          }
+        }
+      }
+    }
+  }
 }

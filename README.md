@@ -18,6 +18,8 @@ here may say which model to use. Everything else in this repository follows from
   carrying a "Not from the RFC table" note in its own description, and each a condition either of
   one of the table's own disciplines being executable, or of a row being placeable in the right
   inbox without leaking what it was.
+- `schemas/judgement-record.schema.json` — the shape of a verdict reached after the run ended, filed
+  against the run it judges (ADR-086 §C.12a).
 - `inbox/` — the landing zone for rows produced elsewhere, before there is a store to put them in.
   See `inbox/README.md` for its convention.
 
