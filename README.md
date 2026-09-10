@@ -15,8 +15,9 @@ here may say which model to use. Everything else in this repository follows from
   must carry" in RFC-2026-09-08, every component of which is required because that table's third
   column lists what cannot be added later. Plus a small, marked set of additions — `run_id`,
   `started_at`, `repository_state.repository`, `repository_state.visibility`, `pairing` — each
-  carrying a "Not from the RFC table" note in its own description, and each a condition of one of the
-  table's own disciplines being executable.
+  carrying a "Not from the RFC table" note in its own description, and each a condition either of
+  one of the table's own disciplines being executable, or of a row being placeable in the right
+  inbox without leaking what it was.
 - `inbox/` — the landing zone for rows produced elsewhere, before there is a store to put them in.
   See `inbox/README.md` for its convention.
 
@@ -42,7 +43,8 @@ declares `pairing.baseline: none`; it is a legitimate group, and it never carrie
 - **`agent.system_prompt_sha256` hashes the instructions the repository controls** — the workflow's
   prompt text, the routine file it points at, and the agent files at that commit. Not the client's
   own system prompt, which a producer usually cannot read and whose changes `harness.version`
-  already carries.
+  proxies imperfectly rather than replaces — a stated hole in the model reference, not a covered
+  case.
 - **The artefact `execution.event_stream.ref` points at is stored outside `inbox/`.** It may contain
   prompts, file content and tool arguments; the row carries only its digest and its event count.
 - **A runner may report a USD figure under a subscription** by applying a price list to the token
@@ -51,6 +53,9 @@ declares `pairing.baseline: none`; it is a legitimate group, and it never carrie
 - **`repository_state.visibility` is ADR-020's taxonomy, not the host's.** The producer maps
   `gh repo view --json visibility` onto it fail-closed: anything it cannot establish as `PUBLIC`
   becomes `enterprise-private`.
+- **A producer with access to the task registry writes `reg:` fingerprints; the CI bot, which has
+  none, writes `ci:` keyed digests over `(repository, pull request, head sha)`.** The prefix is
+  part of the value, so the two never join silently.
 
 ## Where the decisions are
 
@@ -95,6 +100,11 @@ them, and it does not exist yet — which is fine while V0's domain is documenta
 repositories, and is the thing to build before the first enterprise row, for the same reason
 `inbox/` itself was created early.
 
+`fingerprint` values of the `reg:` class come from a private task registry that does not exist
+yet. It is the first thing `exeris-ai-execution-enterprise` must hold, and it is needed before the
+first *planned pair* rather than before the first enterprise row, because a group is declared
+before its arms run — including a group whose repository is public.
+
 ## Open questions
 
 - **The oracle for the review domain.** The L1 gates judge a pull request, not the reviewer that
@@ -106,5 +116,8 @@ repositories, and is the thing to build before the first enterprise row, for the
 - **Whether a CI runner emits an execution log usable as `execution.event_stream`.** Unverified. It
   needs one real run — like the question in RFC-2026-09-09 about whether a hosted action honours
   `.claude/settings.json` hooks.
-- **Retention and the privacy boundary for event payloads.** A policy question in both RFCs;
-  `inbox/README.md` states the assumption this repository runs under meanwhile.
+- **Retention and the privacy boundary for event payloads.** How long the artefact
+  `execution.event_stream.ref` points at is kept, and where the line between metadata and content
+  falls, are the open part, and a policy question in both RFCs. What this repository runs under
+  meanwhile is no longer an assumption: `inbox/README.md` carries it as a rule, and its `## Rules a
+  schema cannot see` specifies the inbox validator that will check it.

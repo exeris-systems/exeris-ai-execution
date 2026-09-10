@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Run record (V0)",
-  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the exception, and it is now required by a constraint rather than by prose: any row whose group declared a human arm (`pairing.baseline: human`) must carry it, and its absence is what stops a row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
+  "description": "One captured run: one workload, attempted by one agent, against one repository state, judged by one oracle. Transcribed from the table \"What a run record must carry\" in RFC-2026-09-08, which fixes the shape rather than the field names — the shape being what makes the one query a router would eventually need answerable at all: the same workload, on the same repository state, under the same oracle, across different models.\n\nEvery component of that table is required here, because the table's third column is a list of things that cannot be added later. `human_baseline` is the exception, and it is required by constraint rather than by prose: a row whose group declared a human arm (`pairing.baseline: human`) must carry it, and a group that declared none may not carry it at all, because a baseline attached afterwards is a post-hoc addition to a preregistered design. Its absence is what stops a row from carrying an economic claim.\n\nThis record is metadata. Prompts, file content and tool arguments may be customer or private-repository material and do not appear in it: `execution.event_stream` references the stream, it does not carry it (RFC §Constraints 5).\n\nV0 observes and does not route. No field here expresses a routing decision or a model-selection recommendation, and none may be added that does.\n\n`workload.domain`, `workload.scope` and `oracle.id` are left open and narrowed by whatever composes this schema, in the way `verdict.base.schema.json` leaves `agent` and `scope_class` open.\n\nThis file carries no `$id`: every reference to it is a relative path, so it resolves from the filesystem — offline, in CI, and in a fresh clone alike.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -28,7 +28,7 @@
       "format": "date-time"
     },
     "workload": {
-      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. The join key for paired runs: two rows are the same workload when their fingerprints agree.",
+      "description": "RFC table: `Workload` — fingerprint, domain, scope, phase, complexity. `fingerprint` identifies the task over time; the key that joins one preregistered comparison is `pairing.group_id`. They are deliberately different keys, and the difference is stated on `fingerprint` itself.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -38,9 +38,9 @@
       ],
       "properties": {
         "fingerprint": {
-          "description": "An opaque, stable identity for the task: the same value on every arm of a paired group, a different value for a different task. Assigned when the task is created, or derived as a keyed digest (HMAC) under a key the producer keeps private — never a bare hash of the task's text.\n\nA plain digest of a short description is a confirmation oracle: anyone who guesses the sentence verifies it against a published row. That would reopen through this field exactly the leak `scope` was closed to prevent, in a form that looks safe because it looks like a hash.\n\nA fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
+          "description": "An opaque identity for the task, stable over time: the same value when the same task is run again after a fence, under a new oracle or a new model snapshot, so that \"the same task under different conditions\" is something the dataset can say.\n\nIt is not the join key for a preregistered comparison — `pairing.group_id` is. This is a stated departure from the RFC table, whose third column calls the fingerprint \"the join key for paired runs\": `pairing`, itself not from the table, took that role, because a key that is declared beats a key that is recovered, and grouping rows by fingerprint to reconstruct a comparison is the post-hoc operation `pairing` exists to prevent.\n\nNever a bare digest of the task's text. A plain hash of a short description is a confirmation oracle: anyone who guesses the sentence verifies it against a published row, which would reopen through this field exactly the leak `scope` is closed to prevent, in a form that looks safe because it looks like a hash.\n\nTwo sanctioned derivations, one per producer class, and the prefix says which — because two producers deriving one task differently is the way \"stable across arms\" fails that no validator can see.\n\n`reg:<id>` — an opaque identifier assigned by the private task registry when the task is planned, and the first choice. Preregistration already requires the task's description to exist in a private place before any arm runs; that document is a registry, and a registry assigns identifiers. Nothing is derived, so nothing can be reversed, and there is no key whose rotation would break identity over time.\n\n`ci:<digest>` — a keyed digest (HMAC) under a key the producer keeps private, for a producer with no access to the registry: the CI bot, whose task is `(repository, pull request, head sha)`. Compromise of that key yields a guessing oracle, not a forgery, so it is a lighter secret than the App key beside it. Rotating it changes the instrument and writes a new `instrument.fence`.\n\nThe two prefixes name disjoint universes of task — planned tasks, and CI events — so a value from one never joins a value from the other, and never does so silently.\n\nA fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
           "type": "string",
-          "minLength": 8,
+          "pattern": "^(reg|ci):[A-Za-z0-9][A-Za-z0-9._-]{3,120}$",
           "maxLength": 128
         },
         "domain": {
@@ -110,13 +110,13 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
         },
         "arm": {
-          "description": "Which arm of the group this row is. It labels the arm, not the model — `agent` already names that — so a group may run one model twice.",
+          "description": "Which slot of the plan this row fills. Unique within `group_id`: a repeated condition is separate slots — `frontier-1`, `frontier-2`, `frontier-3` — never one label on three rows. That is what lets `arms_planned` stay a count of expected rows, so an incomplete group is still detected when the missing rows are replicates of one condition. SCB's own design, 3 runs × 3 arms, is nine slots here, not three.\n\nIt labels the slot, not the model — `agent` already names that — and variance within one condition is recovered by grouping the group's rows on `agent`, which is what `agent` is for. A second field for replicate count would only mean something in terms of this one, so there is not one.\n\nUniqueness is a rule across files, which a schema cannot see; the inbox validator checks it.",
           "type": "string",
           "minLength": 1,
           "maxLength": 64
         },
         "arms_planned": {
-          "description": "How many rows the group was planned to contain, so an incomplete group is detectable without inferring what was intended. It counts the model arms: a human arm produces `human_baseline` on every row of the group and is not itself a row.",
+          "description": "How many rows the group was planned to contain, so an incomplete group is detectable without inferring what was intended. It counts the model arms: a human arm produces `human_baseline` on every row of the group and is not itself a row.\n\nBecause `arm` is unique within a group, this is exactly the number of distinct `arm` values a complete group carries, replicates of one condition included, since those are separate slots.",
           "type": "integer",
           "minimum": 1
         },
@@ -180,7 +180,7 @@
           }
         },
         "system_prompt_sha256": {
-          "description": "SHA-256 of the instructions the repository controls: the prompt text in the workflow, the routine file it points at, and the agent files in force at `repository_state.commit`, canonicalised by a method the producer documents. It is deliberately not a hash of the client's own system prompt — under a hosted action that text is not available to the producer at all, and a change to it is already visible as a change to `harness.version`. A change to the canonicalisation is a change to the instrument and writes a new `instrument.fence`. Left undefined, this field fills with whatever was convenient, and a fence then fails to fire on the change that mattered.",
+          "description": "SHA-256 of the instructions the repository controls: the prompt text in the workflow, the routine file it points at, and the agent files in force at `repository_state.commit`, canonicalised by a method the producer documents. It is deliberately not a hash of the client's own system prompt — under a hosted action that text is not available to the producer at all, and a change to it is proxied, imperfectly, by `harness.version` — a client that changes its system prompt without changing its version is invisible here, which is a stated hole in the model reference rather than a covered case. A change to the canonicalisation is a change to the instrument and writes a new `instrument.fence`. Left undefined, this field fills with whatever was convenient, and a fence then fails to fire on the change that mattered.",
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         }
@@ -205,7 +205,7 @@
           "maxLength": 128
         },
         "visibility": {
-          "description": "The repository's visibility in ADR-020's taxonomy, which has exactly these two values; `public-staged` is deprecated and never appears here. Recorded at capture time rather than resolved later: a repository can be opened afterwards, and a row is subject to the visibility in force when it was written.\n\nThe producer maps the host's own answer onto this vocabulary fail-closed. `gh repo view --json visibility` returns `PUBLIC | PRIVATE | INTERNAL`; only `PUBLIC` becomes `public`, and everything else — including a visibility the producer could not establish — becomes `enterprise-private`.",
+          "description": "Not from the RFC table. The repository's visibility in ADR-020's taxonomy, which has exactly these two values; `public-staged` is deprecated and never appears here. Recorded at capture time rather than resolved later: a repository can be opened afterwards, and a row is subject to the visibility in force when it was written.\n\nThe producer maps the host's own answer onto this vocabulary fail-closed. `gh repo view --json visibility` returns `PUBLIC | PRIVATE | INTERNAL`; only `PUBLIC` becomes `public`, and everything else — including a visibility the producer could not establish — becomes `enterprise-private`.\n\nThe rule runs one way only. A repository can also leave public — archived, or moved behind an ADR-020 mirror — and a row already published does not come back. Nothing here is repaired by correcting a visibility afterwards.",
           "enum": [
             "public",
             "enterprise-private"
@@ -448,7 +448,7 @@
       }
     },
     "human_baseline": {
-      "description": "RFC table: `HumanBaseline` — on paired tasks: human time, outcome, changes. A V0 requirement, not a follow-up: `Haiku: $0.10, 95% TRUE_DONE` reads as a triumph until one learns a human does the same work in seven minutes and Haiku takes forty-two, at which point the economic interpretation inverts. A cost figure with no human reference point is not interpretable, only quotable.",
+      "description": "RFC table: `HumanBaseline` — on paired tasks: human time, outcome, changes. A V0 requirement, not a follow-up: `Haiku: $0.10, 95% TRUE_DONE` reads as a triumph until one learns a human does the same work in seven minutes and Haiku takes forty-two, at which point the economic interpretation inverts. A cost figure with no human reference point is not interpretable, only quotable.\n\nIt is duplicated onto every row of its group, and duplication has one failure mode: divergence. Two rows of one group carrying different human baselines are not one row being wrong — they are a group that cannot be interpreted. Every `human_baseline` within a `group_id` must therefore be byte-for-byte identical, a rule across files that the inbox validator checks, and one that makes the human-arm-first protocol observable as a side effect: a row written before the baseline existed cannot be identical to the rows written after it.\n\nThe trigger for outgrowing this shape, named here so it is recognised rather than discovered: the moment this object needs a second field about the *human* rather than about the *work*, it stops being a field and becomes a record that rows reference. `who` is the first such field, so the trigger is close.",
       "type": "object",
       "additionalProperties": false,
       "required": [

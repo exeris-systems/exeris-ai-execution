@@ -35,6 +35,38 @@ inbox early, "even if it holds nothing else", as the answer.
 - **Nothing here is interpreted.** No aggregation, no comparison across rows, no sentence about
   which model did better. That is V1 and later, and doing it here would break the V0 rule.
 
+## Rules a schema cannot see
+
+These four rules are the specification of the inbox validator, which does not exist. They live
+here because until it does they have no other home — and they are the argument for building it
+before anything analytical: JSON Schema can express none of them, because each is a rule across
+files and a schema sees one document at a time.
+
+Which inbox this is, the validator reads from `inbox.yaml`. Not from the directory name, and not
+from the git remote.
+
+1. **Visibility matches the inbox.** Every row's `repository_state.visibility` equals the
+   `visibility` in `inbox.yaml` — a row filed under the wrong visibility is published by the act
+   of filing it, which is the one mistake here that cannot be corrected afterwards.
+2. **`repository_state` is identical within a `group_id`.** The arms of a paired run share a
+   repository state by definition — that is what makes them a comparison — so a group that spans
+   two states, and therefore possibly two inboxes, is a group each validator would pass on its own
+   half while the whole is uninterpretable.
+3. **`human_baseline` is byte-for-byte identical within a `group_id`.** Divergence is not one row
+   being wrong; it is a group that cannot be interpreted.
+4. **`arm` is unique within a `group_id`.** Otherwise `arms_planned` sees a complete group while a
+   condition is missing replicates.
+
+### The one exception to "rows are marked, never deleted"
+
+A row that lands here marked `enterprise-private` is public from the moment it is committed, and
+the two conventions collide. The visibility rule wins, and the remedy is not a tidy deletion:
+remove the row, rewrite the history that carried it, and then treat the content as disclosed and
+handle it as a disclosure — a force-push does not un-publish anything. Record the removal as a
+dated fence and a marker row carrying the run's identifiers and no content, so the dataset still
+shows that something was removed and why. What "marked, never deleted" protects is the evidence
+that the instrument was once wrong, and that evidence survives in the marker.
+
 ## What is not settled
 
 Retention and the privacy boundary for event payloads. How long the artefact `event_stream.ref`
