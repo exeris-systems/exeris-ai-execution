@@ -11,21 +11,21 @@ here may say which model to use. Everything else in this repository follows from
 
 ## What is here
 
-- `schemas/run-record.schema.json` — the record shape, transcribed from the table "What a run record
-  must carry" in RFC-2026-09-08, every component of which is required because that table's third
-  column lists what cannot be added later. Plus a small, marked set of additions — `run_id`,
+- `schemas/run-record.schema.json` — the run record shape, transcribed from the table "What a run
+  record must carry" in RFC-2026-09-08, every component of which is required because that table's
+  third column lists what cannot be added later. Plus a small, marked set of additions — `run_id`,
   `started_at`, `repository_state.repository`, `repository_state.visibility`, `pairing` — each
   carrying a "Not from the RFC table" note in its own description, and each a condition either of
   one of the table's own disciplines being executable, or of a row being placeable in the right
   inbox without leaking what it was.
 - `schemas/judgement-record.schema.json` — the shape of a verdict reached after the run ended, filed
   against the run it judges (ADR-086 §C.12a).
-- `inbox/` — the landing zone for rows produced elsewhere, before there is a store to put them in.
-  See `inbox/README.md` for its convention.
+- `inbox/` — the landing zone for records produced elsewhere, before there is a store to put them
+  in. See `inbox/README.md` for its convention.
 
 That is all there is today, and deliberately so: no store, no analysis, no oracle implementation,
 no router. A capture shape that has never met a real row is the thing most likely to be wrong, so
-the shape ships first and alone.
+the shapes ship first and alone.
 
 ## The paired-run protocol
 
@@ -86,14 +86,14 @@ been exercised individually in the course of the agent-layer work; the eighth �
 corpus reported as clean, the one mutant that catches the instrument rather than the target — has
 never been run at all. Under fail-closed accounting an oracle whose `PASS` has never been
 contradicted by a known-broken input is unvalidated, so no outcome this repository can honestly
-record today is a pass: every row is `UNKNOWN`, or `UNREACHABLE` where a run never got far enough
-to be judged. The schema enforces exactly that — a row whose `oracle.calibration.status` is `fail`
-or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
+record today is a pass: every record is `UNKNOWN`, or `UNREACHABLE` where a run never got far
+enough to be judged. Both schemas enforce exactly that — a record whose `oracle.calibration.status`
+is `fail` or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
 
 Private rows do not land in this repository's `inbox/`: `exeris-ai-execution-enterprise` will hold
 them, and it does not exist yet — which is fine while V0's domain is documentation in public
 repositories, and it is to be created early for the same reason `inbox/` was. What splits that way
-is the rows, never the contract: the schema and the tooling here stay public because a contract is
+is the rows, never the contract: the schemas and the tooling here stay public because a contract is
 public, and it is the rows that visibility protects.
 
 `fingerprint` values of the `reg:` class come from a private task registry that does not exist

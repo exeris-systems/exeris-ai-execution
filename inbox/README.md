@@ -1,7 +1,7 @@
 # inbox/
 
-The landing zone for run records produced elsewhere, before this repository has a store to put
-them in. Rows arrive here; nothing here reads them.
+The landing zone for records produced elsewhere, before this repository has a store to put
+them in. Records arrive here; nothing here reads them.
 
 It exists this early because the alternative is losing rows. Envelopes uploaded by CI are workflow
 artefacts, and ninety days is GitHub's default retention — rows written before there is somewhere
@@ -12,8 +12,8 @@ inbox early, "even if it holds nothing else", as the answer.
 
 - **One file per record: a run at `inbox/<YYYY-MM-DD>/runs/<run_id>.json`, a judgement at
   `inbox/<YYYY-MM-DD>/judgements/<judgement_id>.json`, each dated in UTC by its own timestamp —
-  `started_at` for a run, `judged_at` for a judgement.** One record per file so a row can be added
-  or corrected without rewriting its neighbours — corrected by filing a new row, never by editing
+  `started_at` for a run, `judged_at` for a judgement.** One record per file so it can be added
+  or corrected without rewriting its neighbours — corrected by filing a new record, never by editing
   the file in place, as the rule below requires; UTC so the directory a record lands in does not
   depend on where it was produced. The `runs/` and `judgements/` segments are what tell the
   validator which schema to read a file against; a discriminator field inside the file would have
@@ -22,18 +22,20 @@ inbox early, "even if it holds nothing else", as the answer.
   `exeris-ai-execution-enterprise`, which does not exist yet — ADR-018's public spec beside a private
   decoder, `exeris-benchmarks` beside `exeris-benchmarks-enterprise`. The rule itself is rule 1 of
   `## Rules a schema cannot see`.
-- **Every file validates against `../schemas/run-record.schema.json`.** A file that does not is not
-  a row, it is a defect in the producer — it is reported back to the producer, never repaired here,
-  for the reason the rule below gives for never rewriting a row.
+- **Every file validates against its segment's schema — `../schemas/run-record.schema.json` or
+  `../schemas/judgement-record.schema.json`.** A file that does not is not a record, it is a defect
+  in the producer — it is reported back to the producer, never repaired here, for the reason the
+  rule below gives for never rewriting a record.
 - **Metadata only.** Prompts, file content and tool arguments do not enter this directory in any
   form, because `execution.event_stream` references the stream rather than carrying it, and that
   material may be customer or private-repository content. The artefact `event_stream.ref` points at
   is stored outside this directory for exactly that reason: the row carries its digest and its event
   count, the content stays elsewhere.
-- **Rows are appended, marked, never rewritten or deleted.** A correction is a new row and a dated
-  fence; rows either side of a fence are never summarised in one figure. Deleting a row destroys the
-  evidence that the instrument was once wrong, and editing one destroys it too — an edited row,
-  repaired or rewritten, records what the editor later believed rather than what the run did.
+- **Records are appended, marked, never rewritten or deleted.** A correction is a new record and a
+  dated fence; rows either side of a fence are never summarised in one figure. Deleting a record
+  destroys the evidence that the instrument was once wrong, and editing one destroys it too — an
+  edited record, repaired or rewritten, says what the editor later believed rather than what the
+  run did.
 - **Nothing here is interpreted.** No aggregation, no comparison across rows, no sentence about
   which model did better. That is V1 and later, and doing it here would break the V0 rule.
 
@@ -62,7 +64,7 @@ from the git remote.
 5. **A judgement's `run_id` resolves to a run record in this inbox.** A judgement of a run nobody
    holds is not a judgement, only an assertion about one.
 
-### The one exception to "rows are appended, marked, never rewritten or deleted"
+### The one exception to "records are appended, marked, never rewritten or deleted"
 
 A row that lands here without matching the visibility `inbox.json` declares puts the two
 conventions in collision; where that declared visibility is `public`, it is published already, by
