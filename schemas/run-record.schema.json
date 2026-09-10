@@ -372,7 +372,7 @@
       ],
       "properties": {
         "id": {
-          "description": "Which oracle judged this run. Left open and narrowed by the composing schema: V0's is the documentation and agent-layer guardrail suite, whose scope is structural consistency and never whether the work is any good. The System Construction Benchmark becomes a second implementation behind the same interface at its Phase 4, carrying its own calibration state.\n\nOne oracle id used across two domains names two different oracles and must never be summarised as one. Which oracle judges a review run — where the L1 gates judge the pull request rather than the reviewer — is not decided; see the open questions in README.md.",
+          "description": "Which oracle judged this run. Left open and narrowed by the composing schema: V0's is the documentation and agent-layer guardrail suite, whose scope is structural consistency and never whether the work is any good. The System Construction Benchmark becomes a second implementation behind the same interface at its Phase 4, carrying its own calibration state.\n\nOne oracle id used across two domains names two different oracles and must never be summarised as one. Which oracle judges a review run is settled by ADR-086 §D — two review domains of different standing, not one — and `workload.domain` carries why they must be two.",
           "type": "string",
           "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
           "maxLength": 64
@@ -441,7 +441,7 @@
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
         },
         "fence": {
-          "description": "The dated fence in force when this row was written. A change to the oracle, the harness, the dispatcher or a model snapshot writes a new one; rows before it are marked, never deleted.",
+          "description": "The dated fence in force when this row was written. A change to the oracle, the harness, the dispatcher or a model snapshot writes a new one; what may happen to a row a fence marks is owned by `inbox/README.md`.",
           "type": "string",
           "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(-[a-z0-9]+(-[a-z0-9]+)*)?$"
         }

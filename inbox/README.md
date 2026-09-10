@@ -64,8 +64,9 @@ the same commit that filed it. The visibility rule wins, and the remedy is not a
 remove the row, rewrite the history that carried it, and then treat the content as disclosed and
 handle it as a disclosure — a force-push does not un-publish anything. Record the removal as a
 dated fence and a marker row carrying the run's identifiers and no content, so the dataset still
-shows that something was removed and why. What "marked, never deleted" protects is the evidence
-that the instrument was once wrong, and that evidence survives in the marker.
+shows that something was removed and why. What "appended, marked, never rewritten or deleted"
+protects is the evidence that the instrument was once wrong, and that evidence survives in the
+marker.
 
 ## What is not settled
 

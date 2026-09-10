@@ -55,10 +55,11 @@ with the producer, beside the workflow that emits the rows.
   oracle V0 observes against (the existing documentation and agent-layer guardrail suite, behind an
   oracle interface the System Construction Benchmark implements later as a second provider), the
   first domain, and the preregistration discipline the dataset carries from its first row.
-- `exeris-docs/adr-index.md` — **ADR-086** is reserved there, content pending. It will fix this
-  layer's boundary against ADR-025 (`exeris-ai-bridge` is a context adapter, not a host) and
-  against the agent bundle (a telemetry sink contract in the hook dispatcher, not a second place
-  rules live).
+- **ADR-086** — drafted, at PROPOSED status, not yet merged; its number is reserved in
+  `exeris-docs/adr-index.md`. It fixes this layer's boundary against ADR-025 (`exeris-ai-bridge` is
+  a context adapter, not a host) and against the agent bundle (a telemetry sink contract in the hook
+  dispatcher, not a second place rules live), and the review domains and their oracles are among
+  what it settles.
 - `exeris-docs/rfc/RFC-2026-09-09-exeris-bot-review-publication-and-run-capture.md` — draft. It is
   the producer of the rows that land in `inbox/`.
 
