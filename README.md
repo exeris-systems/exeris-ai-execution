@@ -27,35 +27,27 @@ the shape ships first and alone.
 
 ## The paired-run protocol
 
-Paired runs — the same task across N models — are the primary collection mode, because they answer
-the one useful question at a fraction of the n that observational rows across heterogeneous tasks
-would need. A group is declared before any of its arms runs, under a `pairing.group_id` assigned in
-advance; it is never recovered afterwards by grouping rows on `workload.fingerprint`. A group
-assigned in advance is an artefact of the design, and a group recovered by a query is a query.
-
-**The human arm runs first**, for two reasons. The baseline is then already known when each model
-row is written, so no row has to be rewritten later — which `inbox/` forbids anyway. And the human
-has not seen a model's output, so the baseline is not contaminated by it. A group with no human arm
-declares `pairing.baseline: none`; it is a legitimate group, and it never carries an economic claim.
+**The human arm runs first**, for two reasons. The baseline is then known when each model row is
+written, so no row has to be rewritten later — which `inbox/` forbids anyway; and the human has not
+seen a model's output, so the baseline is not contaminated by it. What a paired run is, and what a
+group with no human arm declares, are on `pairing` in `schemas/run-record.schema.json`.
 
 ## For producers of rows
 
-- **`agent.system_prompt_sha256` hashes the instructions the repository controls** — the workflow's
-  prompt text, the routine file it points at, and the agent files at that commit. Not the client's
-  own system prompt, which a producer usually cannot read and whose changes `harness.version`
-  proxies imperfectly rather than replaces — a stated hole in the model reference, not a covered
-  case.
-- **The artefact `execution.event_stream.ref` points at is stored outside `inbox/`.** It may contain
-  prompts, file content and tool arguments; the row carries only its digest and its event count.
-- **A runner may report a USD figure under a subscription** by applying a price list to the token
-  counts. That figure is imputed rather than reported, the schema rejects it on a non-`api` row, and
-  the producer is expected to drop it deliberately rather than never to have looked for it.
-- **`repository_state.visibility` is ADR-020's taxonomy, not the host's.** The producer maps
-  `gh repo view --json visibility` onto it fail-closed: anything it cannot establish as `PUBLIC`
-  becomes `enterprise-private`.
-- **A producer with access to the task registry writes `reg:` fingerprints; the CI bot, which has
-  none, writes `ci:` keyed digests over `(repository, pull request, head sha)`.** The prefix is
-  part of the value, so the two never join silently.
+- `agent.system_prompt_sha256` — what the hash covers; the rule is on the field in
+  `schemas/run-record.schema.json`.
+- `execution.event_stream` — where the referenced artefact lives; the rule is on the field in
+  `schemas/run-record.schema.json`.
+- `accounting` — why an imputed cost is not a reported one; the rule is on the field in
+  `schemas/run-record.schema.json`.
+- `repository_state.visibility` — the ADR-020 mapping; the rule is on the field in
+  `schemas/run-record.schema.json`.
+- `workload.fingerprint` — the `reg:` and `ci:` producer classes; the rule is on the field in
+  `schemas/run-record.schema.json`.
+
+How to *derive* these values in a particular runtime — what a CI producer hashes, where it reads a
+snapshot from, which figures it drops — is not schema semantics and does not live here; it belongs
+with the producer, beside the workflow that emits the rows.
 
 ## Where the decisions are
 

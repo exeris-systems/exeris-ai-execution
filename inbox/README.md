@@ -38,11 +38,12 @@ here because until it does they have no other home — and they are the argument
 before anything analytical: JSON Schema can express none of them, because each is a rule across
 files and a schema sees one document at a time.
 
-Which inbox this is, the validator reads from `inbox.yaml`. Not from the directory name, and not
+Which inbox this is, the validator reads from `inbox.json` — JSON, so the first piece of tooling
+that has to read it needs nothing beyond the standard library. Not from the directory name, and not
 from the git remote.
 
 1. **Visibility matches the inbox.** Every row's `repository_state.visibility` equals the
-   `visibility` in `inbox.yaml` — a row filed under the wrong visibility is published by the act
+   `visibility` in `inbox.json` — a row filed under the wrong visibility is published by the act
    of filing it, which is the one mistake here that cannot be corrected afterwards.
 2. **`repository_state` is identical within a `group_id`.** The arms of a paired run share a
    repository state by definition — that is what makes them a comparison — so a group that spans
@@ -55,7 +56,7 @@ from the git remote.
 
 ### The one exception to "rows are marked, never deleted"
 
-A row that lands here without matching the visibility `inbox.yaml` declares puts the two
+A row that lands here without matching the visibility `inbox.json` declares puts the two
 conventions in collision; where that declared visibility is `public`, it is published already, by
 the same commit that filed it. The visibility rule wins, and the remedy is not a tidy deletion:
 remove the row, rewrite the history that carried it, and then treat the content as disclosed and

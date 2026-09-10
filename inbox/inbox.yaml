@@ -1,4 +1,0 @@
-# Which inbox this is. The validator reads this file rather than inferring the
-# answer from the directory name or the git remote — an inference is the same
-# class of unstated assumption this convention exists to remove.
-visibility: public
