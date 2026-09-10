@@ -20,7 +20,7 @@ inbox early, "even if it holds nothing else", as the answer.
   `## Rules a schema cannot see`.
 - **Every file validates against `../schemas/run-record.schema.json`.** A file that does not is not
   a row, it is a defect in the producer — it is reported back to the producer, never repaired here,
-  because a repaired row records what the fixer believed rather than what the run did.
+  for the reason the rule below gives for never rewriting a row.
 - **Metadata only.** Prompts, file content and tool arguments do not enter this directory in any
   form, because `execution.event_stream` references the stream rather than carrying it, and that
   material may be customer or private-repository content. The artefact `event_stream.ref` points at
@@ -28,8 +28,8 @@ inbox early, "even if it holds nothing else", as the answer.
   count, the content stays elsewhere.
 - **Rows are appended, marked, never rewritten or deleted.** A correction is a new row and a dated
   fence; rows either side of a fence are never summarised in one figure. Deleting a row destroys the
-  evidence that the instrument was once wrong, and rewriting one destroys the same evidence for the
-  same reason — an edited row records what the editor later believed rather than what the run did.
+  evidence that the instrument was once wrong, and editing one destroys it too — an edited row,
+  repaired or rewritten, records what the editor later believed rather than what the run did.
 - **Nothing here is interpreted.** No aggregation, no comparison across rows, no sentence about
   which model did better. That is V1 and later, and doing it here would break the V0 rule.
 
