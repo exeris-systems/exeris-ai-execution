@@ -153,10 +153,11 @@
           "maxLength": 128
         },
         "model_snapshot": {
-          "description": "The dated or versioned snapshot behind `model_id`. An id whose snapshot moved names a different model, and rows either side of the move are not comparable.",
+          "description": "The dated or versioned snapshot behind `model_id`. An id whose snapshot moved names a different model, and rows either side of the move are not comparable.\n\nWhere the runtime exposes no snapshot for the model that took the turns, the field carries `unresolved:<model_id>` — the alias, marked so that neither a reader nor a query can read it as a snapshot. An unexposed snapshot is a property of the INSTRUMENT, not a value of the datum: `instrument.fence` carries the state, rows are comparable within a fence and never across one. The bare alias is refused, because one alias may name different weights at different times and a row that cannot tell is worse than a row that says it cannot. `model_snapshot` equal to `model_id` is that refusal, and it is enforced by `tools/inbox_validate.py` — JSON Schema compares a value against a constant, never against its sibling. ADR-086, amendment of 2026-09-17.",
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^(unresolved:)?[A-Za-z0-9](?:[A-Za-z0-9._:-]*[A-Za-z0-9])?$"
         },
         "harness": {
           "description": "The client that ran the model, and its version. One model under two clients is two harnesses, not one.",

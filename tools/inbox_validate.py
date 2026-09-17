@@ -120,6 +120,18 @@ def check(root: str, rep: Report) -> list[str]:
                 rep.error(path, f"declares `repository_state.visibility: "
                                 f"{state.get('visibility')!r}` in an inbox whose identity is "
                                 f"{declared!r} — it belongs in the sibling inbox")
+            # An alias is not a snapshot (ADR-086, amendment of 2026-09-17). Not a cross-file
+            # rule, and here for the reason those are: JSON Schema compares a value against a
+            # constant, never against its sibling, so this is the only place that can say it.
+            # Measured over every execution log the review runner had produced by that date — none
+            # exposes a dated snapshot for the model that takes the turns. Writing the alias into
+            # the snapshot field would make every row claim a precision no row has.
+            agent = body.get("agent") or {}
+            model_id, snapshot = agent.get("model_id"), agent.get("model_snapshot")
+            if isinstance(model_id, str) and isinstance(snapshot, str) and snapshot == model_id:
+                rep.error(path, f"`agent.model_snapshot` repeats `agent.model_id` "
+                                f"(`{model_id}`) — an alias is not a snapshot, and a runtime that "
+                                f"exposes none is recorded as `unresolved:{model_id}`")
             if own_id is not None:
                 runs[str(own_id)] = body
             group = (body.get("pairing") or {}).get("group_id")

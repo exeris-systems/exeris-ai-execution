@@ -32,8 +32,8 @@ def run_record(run_id="R-1", visibility="public", group=None, arm=None, baseline
         "run_id": run_id,
         "started_at": "2026-09-17T10:00:00Z",
         "workload": {"domain": "docs-guardrails", "scope": "docs-only", "fingerprint": "ci:abc"},
-        "agent": {"provider": "anthropic", "model_id": "m", "harness": {"client": "c",
-                                                                        "version": "1"}},
+        "agent": {"provider": "anthropic", "model_id": "m", "model_snapshot": "m-20260917",
+                  "harness": {"client": "c", "version": "1"}},
         "repository_state": {"repository": "exeris-systems/exeris-docs", "visibility": visibility,
                              "commit": "a" * 40, "bundle_version": "2.0.0", "dirty": False},
         "execution": {"turns": 1, "tool_calls": 1, "wall_time_ms": 1,
@@ -128,6 +128,28 @@ def _(root):
     code, text = validate(root)
     assert code == 1, text
     assert "appears 2 times in `group_id: G-1`" in text, text
+
+
+# Not one of the five cross-file rules: a within-record rule that lives here because JSON Schema
+# compares a value against a constant and never against its sibling.
+@case("an alias repeated as a snapshot is refused, and the marked form is not")
+def _(root):
+    bare = run_record()
+    bare["agent"]["model_snapshot"] = bare["agent"]["model_id"]
+    build(root, runs=[bare])
+    code, out = validate(root)
+    assert code == 1, out
+    assert "an alias is not a snapshot" in out, out
+    assert "unresolved:m" in out, out
+
+
+@case("the marked form passes, because saying so is the whole point of marking it")
+def _(root):
+    marked = run_record()
+    marked["agent"]["model_snapshot"] = "unresolved:" + marked["agent"]["model_id"]
+    build(root, runs=[marked])
+    code, out = validate(root)
+    assert code == 0, out
 
 
 @case("rule 5 — a judgement resolves to its run or it is about nothing")
