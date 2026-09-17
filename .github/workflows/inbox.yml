@@ -1,0 +1,63 @@
+# The inbox's own gate — ADR-086 §G.33. `inbox/README.md` promises that a non-conforming row is
+# "reported back to the producer"; this is what makes that true, and it runs here as well as in the
+# producer (ADR-087 §C.15), so a bad row is caught before it is proposed and again before it lands.
+name: inbox
+on:
+  pull_request:
+    types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+concurrency:
+  group: inbox-${{ github.event.pull_request.number }}
+  # Not `true`: a bot-triggered run queues rather than cancelling one that is publishing.
+  cancel-in-progress: ${{ !endsWith(github.actor, '[bot]') }}
+permissions:
+  contents: read
+
+jobs:
+  # Two jobs because they answer different questions with different dependencies. The cross-file
+  # rules need nothing installed and must run anywhere; schema conformance needs a Draft 2020-12
+  # validator. Splitting them keeps `inbox_validate.py` importable by a producer that has no pip.
+  cross-file:
+    name: cross-file rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.14' }
+      - run: python tools/inbox_validate.py --root .
+      - name: The validator's own cases
+        run: python tools/inbox_validate_suite.py
+
+  schema:
+    name: schema conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.14' }
+      - run: pip install jsonschema
+      - name: Every record against its segment's schema
+        # The segment decides the schema: `runs/` and `judgements/` are what tell a reader which
+        # contract a file answers to, which is why the convention puts them in the path rather than
+        # in a discriminator field that would have to be read before the file could be validated.
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          from jsonschema import Draft202012Validator
+          schemas = {k: Draft202012Validator(json.loads(pathlib.Path(f"schemas/{v}").read_text()))
+                     for k, v in (("runs", "run-record.schema.json"),
+                                  ("judgements", "judgement-record.schema.json"))}
+          bad = 0
+          seen = 0
+          for path in sorted(pathlib.Path("inbox").rglob("*.json")):
+              kind = path.parent.name
+              if kind not in schemas:
+                  continue
+              seen += 1
+              doc = json.loads(path.read_text())
+              for err in sorted(schemas[kind].iter_errors(doc), key=lambda e: list(e.path)):
+                  where = "/".join(str(p) for p in err.path) or "<root>"
+                  print(f"::error file={path}::{where}: {err.message}")
+                  bad += 1
+          print(f"\n## inbox schema\n\nChecked **{seen}** record(s) — **{bad} error(s)**.")
+          sys.exit(1 if bad else 0)
+          PY
