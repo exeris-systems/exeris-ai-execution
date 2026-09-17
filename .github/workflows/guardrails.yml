@@ -102,6 +102,23 @@ jobs:
         {"docs-lint": "${{ needs.docs.result }}",
          "commit-lint": "${{ needs.commits.result }}",
          "pr-body-check": "${{ needs.pr-body.result }}"}
+      # This repository's substance is a schema, a validator and the rules the validator enforces,
+      # and none of it is prose the shared routine can read. What CI can do is run the checks and
+      # hand the reviewer their output, so a finding about a rule can cite whether the rule still
+      # holds instead of guessing.
+      #
+      # `;` and not `&&`, per the input's own description: the suite exits non-zero when a case
+      # fails, and a list joined by `&&` would stop at the first script that had something to say.
+      #
+      # These two also run as the `cross-file rules` job of `inbox.yml`, where they gate the merge.
+      # Here they are evidence rather than a gate: `repo-checks` cannot fail the produce job, by
+      # construction. The duplication is the point — the gate says stop, the handover says why.
+      # This repository's own rules, applied AFTER the shared routine's steps and under its
+      # severity tags and verdict schema. One review, one verdict, one publisher: the
+      # extension is what makes having rules of one's own stop being a reason to keep a
+      # review workflow of one's own, which is the state the organisation's review replaced.
+      repo-routine: docs/repo-review-rules.md
+      repo-checks: python3 tools/inbox_validate_suite.py; python3 tools/inbox_validate.py --root .
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       exeris_bot_app_id: ${{ secrets.EXERIS_BOT_APP_ID }}
