@@ -113,6 +113,11 @@ jobs:
       # These two also run as the `cross-file rules` job of `inbox.yml`, where they gate the merge.
       # Here they are evidence rather than a gate: `repo-checks` cannot fail the produce job, by
       # construction. The duplication is the point — the gate says stop, the handover says why.
+      # This repository's own rules, applied AFTER the shared routine's steps and under its
+      # severity tags and verdict schema. One review, one verdict, one publisher: the
+      # extension is what makes having rules of one's own stop being a reason to keep a
+      # review workflow of one's own, which is the state the organisation's review replaced.
+      repo-routine: docs/repo-review-rules.md
       repo-checks: python3 tools/inbox_validate_suite.py; python3 tools/inbox_validate.py --root .
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
