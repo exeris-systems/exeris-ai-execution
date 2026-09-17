@@ -83,6 +83,21 @@ case("a slash in the id, resolved", valid=True,
 case("an ordinary dated snapshot", valid=True,
      model_id="claude-sonnet-5", model_snapshot="claude-sonnet-5-20260514")
 
+# THE SAME PARITY, IN LENGTH. The character sets were made to match and the length caps were not,
+# so an id of 118 characters or more had no valid marked form: identical defect, one axis over,
+# under a commit whose title said the defect was closed. Nothing here went near the boundary, which
+# is why nothing said so. `model_snapshot` now carries `model_id`'s cap plus `unresolved:`.
+LONG_ID = "a" + "b0-c._d:e/f@g+" * 9 + "a"                     # 128, every admitted character
+case("an id at its own length limit, marked", valid=True,
+     model_id=LONG_ID, model_snapshot="unresolved:" + LONG_ID)
+case("and resolved at that length", valid=True,
+     model_id=LONG_ID, model_snapshot=LONG_ID)
+case("an id one character past its limit", valid=False,
+     model_id=LONG_ID + "z", model_snapshot="m-1")
+case("a marked form past the id's limit plus the prefix", valid=False,
+     model_id=LONG_ID, model_snapshot="unresolved:" + LONG_ID + "z")
+
+
 # The patterns still have to refuse something, or they are decoration.
 case("a snapshot with a space", valid=False,
      model_id="m", model_snapshot="not a snapshot")
