@@ -152,6 +152,44 @@ def _(root):
     assert code == 0, out
 
 
+# Vendors write `/`, `@` and `:` into model identifiers and this repository does not get to
+# legislate that. The snapshot field's pattern was narrower than the id it marks, so a HuggingFace-
+# shaped id had no valid marked form at all: the row could neither carry the snapshot it does not
+# have nor say that it does not have one. Caught by the review reading the two patterns against each
+# other, which is the only way to see it — each is valid on its own.
+@case("a vendor id carrying a slash can still be marked unresolved")
+def _(root):
+    marked = run_record()
+    marked["agent"]["model_id"] = "meta-llama/Llama-3.1-70B-Instruct"
+    marked["agent"]["model_snapshot"] = "unresolved:meta-llama/Llama-3.1-70B-Instruct"
+    build(root, runs=[marked])
+    code, out = validate(root)
+    assert code == 0, out
+
+
+@case("and one carrying an @")
+def _(root):
+    marked = run_record()
+    marked["agent"]["model_id"] = "gpt-4o@2026-05-13"
+    marked["agent"]["model_snapshot"] = "unresolved:gpt-4o@2026-05-13"
+    build(root, runs=[marked])
+    code, out = validate(root)
+    assert code == 0, out
+
+
+# The other half of the mark. `unresolved:` says "this row's alias, and no snapshot behind it", so a
+# mark naming a DIFFERENT alias marks nothing — it reads as a snapshot that happens to begin with a
+# word. Nothing asked before this.
+@case("a mark naming another alias marks nothing")
+def _(root):
+    wrong = run_record()
+    wrong["agent"]["model_snapshot"] = "unresolved:some-other-model"
+    build(root, runs=[wrong])
+    code, out = validate(root)
+    assert code == 1, out
+    assert "this row's own alias" in out, out
+
+
 @case("rule 5 — a judgement resolves to its run or it is about nothing")
 def _(root):
     build(root, runs=[run_record("R-1")], judgements=[judgement("J-1", run_id="R-404")])

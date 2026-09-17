@@ -35,6 +35,13 @@ jobs:
       - uses: actions/setup-python@v7
         with: { python-version: '3.14' }
       - run: pip install jsonschema
+      # The step below validates the records the inbox HOLDS, and it holds none yet, so every
+      # pattern in the schema shipped with nothing having ever been checked against it. This runs
+      # crafted records instead -- including the two fields that are one rule written twice, where
+      # `model_snapshot` narrower than the `model_id` it marks leaves some ids with no valid marked
+      # form at all. Each pattern reads fine alone; only reading them against each other shows it.
+      - name: The schema's own cases, one per way a pattern can be wrong
+        run: python tools/schema_cases.py
       - name: Every record against its segment's schema
         # The segment decides the schema: `runs/` and `judgements/` are what tell a reader which
         # contract a file answers to, which is why the convention puts them in the path rather than
