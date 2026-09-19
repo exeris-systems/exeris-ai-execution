@@ -25,13 +25,19 @@ here may say which model to use. Everything else in this repository follows from
   row's `instrument.capture_version` carries, and it moves by the SemVer of ADR-086 §C.9.
 - `inbox/` — the landing zone for records produced elsewhere, before there is a store to put them
   in. See `inbox/README.md` for its convention.
-- `docs/fences.md` and `docs/oracles.md` — the two registers a row's values resolve in: which fence
-  ids exist and what each marks, and which `oracle.id` and `oracle.version` a producer may write
-  today with the calibration state each carries.
+- `tools/` — the tooling that reads the inbox: `inbox_validate.py` enforces the cross-file rules
+  (ADR-086 §G.34) no single schema can see, `inbox_validate_suite.py` is its case suite, and
+  `schema_cases.py` is the run-record schema's own case suite. Each module's docstring is the home
+  for what it does and why. `.github/workflows/inbox.yml` runs all three.
+- `docs/` — `docs/adr/ADR-086.link.md` and `docs/adr/ADR-087.link.md` point at this layer's two
+  governing decisions; `docs/repo-review-rules.md` is this repository's extension of the shared
+  review routine; `docs/fences.md` and `docs/oracles.md` are the two registers a row's values
+  resolve in: which fence ids exist and what each marks, and which `oracle.id` and `oracle.version`
+  a producer may write today with the calibration state each carries.
 
 That is all there is today, and deliberately so: no store, no analysis, no oracle implementation,
 no router. A capture shape that has never met a real row is the thing most likely to be wrong, so
-the shapes ship first and alone.
+the shapes and the tooling that reads them ship first and alone.
 
 ## The paired-run protocol
 
@@ -63,13 +69,13 @@ with the producer, beside the workflow that emits the rows.
   oracle V0 observes against (the existing documentation and agent-layer guardrail suite, behind an
   oracle interface the System Construction Benchmark implements later as a second provider), the
   first domain, and the preregistration discipline the dataset carries from its first row.
-- **ADR-086** — drafted, at PROPOSED status, not yet merged; its number is reserved in
-  `exeris-docs/adr-index.md`. It fixes this layer's boundary against ADR-025 (`exeris-ai-bridge` is
-  a context adapter, not a host) and against the agent bundle (a telemetry sink contract in the hook
+- **ADR-086** — `exeris-docs/adr/ADR-086-bound-the-ai-execution-layer-to-observation-before-routing.md`,
+  accepted 2026-09-15. It fixes this layer's boundary against ADR-025 (`exeris-ai-bridge` is a context
+  adapter, not a host) and against the agent bundle (a telemetry sink contract in the hook
   dispatcher, not a second place rules live), and the review domains and their oracles are among
   what it settles.
-- `exeris-docs/rfc/RFC-2026-09-09-exeris-bot-review-publication-and-run-capture.md` — draft. It is
-  the producer of the rows that land in `inbox/`.
+- **ADR-087** — `exeris-docs/adr/ADR-087-establish-exeris-bot-as-the-ci-publication-and-capture-step.md`,
+  accepted 2026-09-15. It is the producer of the rows that land in `inbox/`.
 
 Referenced by path rather than by URL: these are sibling repositories in one workspace, and a path
 resolves in a clone with no network.
@@ -96,6 +102,9 @@ record today is a pass: every record is `UNKNOWN`, or `UNREACHABLE` where a run 
 enough to be judged. Both schemas enforce exactly that — a record whose `oracle.calibration.status`
 is `fail` or `not-run` cannot carry `TRUE_DONE` or `FALSE_DONE`.
 
+The L2 review's execution streams are held in `exeris-ai-execution-streams` (private) — the
+repository `execution.event_stream.ref` points at — ahead of the first row derived from them.
+
 Private rows do not land in this repository's `inbox/`: `exeris-ai-execution-enterprise` will hold
 them, and it does not exist yet — which is fine while V0's domain is documentation in public
 repositories, and it is to be created early for the same reason `inbox/` was. What splits that way
@@ -109,13 +118,8 @@ because a group is declared before its arms run — including a group whose repo
 
 ## Open questions
 
-- **The telemetry sink contract.** Its payload, its versioning and which bundle version ships it are
-  open in RFC-2026-09-08.
-- **Whether a CI runner emits an execution log usable as `execution.event_stream`.** Unverified. It
-  needs one real run — like the question in RFC-2026-09-09 about whether a hosted action honours
-  `.claude/settings.json` hooks.
-- **Retention and the privacy boundary for event payloads.** How long the artefact
-  `execution.event_stream.ref` points at is kept, and where the line between metadata and content
-  falls, are the open part, and a policy question in both RFCs. What this repository runs under
-  meanwhile is no longer an assumption: `inbox/README.md` carries it as a rule, and its
-  `## Convention` list is where that rule lives — not the cross-file section beside it.
+- **The telemetry sink contract.** Deferred; see ADR-086 §H.36.
+- **The metadata/content boundary for event payloads.** Open; see ADR-086 §H.37. What this
+  repository runs under meanwhile is no longer an assumption: `inbox/README.md` carries it as a
+  rule, and its `## Convention` list is where that rule lives — not the cross-file section beside
+  it.

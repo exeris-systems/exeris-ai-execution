@@ -123,32 +123,6 @@ jobs:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       exeris_bot_app_id: ${{ secrets.EXERIS_BOT_APP_ID }}
       exeris_bot_private_key: ${{ secrets.EXERIS_BOT_PRIVATE_KEY }}
-    # with:
-    #   # PUBLICATION IS OFF BY DEFAULT. Turn it on once `exeris-systems/.github` has run the review
-    #   # on itself and answered ADR-087 Engineering Protocol 4 — whether the runner writes a
-    #   # verdict file, and what identity it posts under. Until then this job produces a review and
-    #   # publishes nothing, which is what it did before the split.
-    #   publish: true
-    #   # Which runner produces the verdict. One value is supported today; it is recorded, never
-    #   # selected — ADR-087 §B.12.
-    #   runner: claude-code-action
-    #   # L1 gates whose `not-run` makes the required check red, beyond the routine's own three
-    #   # (docs-lint, commit-lint, pr-body-check). Name a repo's own mandatory gates here.
-    #   mandatory-gates: "docs-lint,commit-lint,pr-body-check,javadoc-gate"
-    #   # THIS REPOSITORY'S OWN REVIEW RULES, if it has any. The point of these two is that having
-    #   # rules of your own is no longer a reason to keep a review workflow of your own — which is
-    #   # how every repository ended up with a second verdict format, no required check and no
-    #   # provenance. The shared routine's `## Repository extension` section owns the limits: an
-    #   # extension adds checks and raises severities, it never lowers one, skips a step, or changes
-    #   # the output format.
-    #   repo-routine: .agents/workflows/docs-pr-review.md
-    #   # Scripts CI runs for the reviewer before the model starts, their output handed over as a
-    #   # file. CI runs them because the runner's harness denies Bash — asking the model to execute
-    #   # them gets a review that reports its own checks as `not-run`. A non-zero exit never fails
-    #   # the job: a candidate locator that found candidates is evidence, not a verdict.
-    #   # Separated by `;`, NOT by `&&`: a candidate locator exits non-zero when it FINDS
-    #   # something, so `&&` would stop the list at the first script that had anything to say.
-    #   repo-checks: .agents/scripts/drift-sweep.sh; .agents/scripts/taxonomy-check.sh
   # javadoc:                    # JVM repos with a gated module only
   #   uses: exeris-systems/.github/.github/workflows/javadoc-gate.yml@main
   #   with:
