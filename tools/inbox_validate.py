@@ -9,6 +9,13 @@ Standard library only, on purpose: it runs in CI, in a producer's own workflow b
 inbox pull request (ADR-087 §C.15), and on a maintainer's machine, and none of those should need an
 install step to tell a good row from a bad one.
 
+Not every rule here is a cross-file rule, and the reasons differ. An alias repeated as a snapshot
+is a comparison between two sibling fields, which JSON Schema cannot make. A publisher's name in
+`agent.*` is a set of names this organisation owns rather than a shape this contract does. An
+`adhoc:` row claiming a group is in the schema as well, and is also here because this file is what
+runs where no JSON Schema validator is installed — which is every place a producer checks its own
+rows before it opens an inbox pull request.
+
 What it does NOT do: full JSON Schema validation. The schemas are Draft 2020-12 compositions and
 checking one properly needs a validator this file may not import. So schema conformance is
 **checkable, not checked** here — `.github/workflows/inbox.yml` runs it with `jsonschema` installed,
@@ -21,9 +28,42 @@ import json
 import os
 import sys
 
+# The organisation's own writing identities: the voice, the pen and the hands (ADR-087 §A.1,
+# RFC-2026-09-17). None of them is a model, so none of them belongs in `agent.*`;
+# `execution.principal` is where the identity a run acted under goes.
+PUBLISHERS = ("exeris-bot", "exeris-inbox", "exeris-agent")
+
+
+def obj(node: dict, key: str) -> dict:
+    """The mapping under `key`, or an empty one where the value is anything else.
+
+    A producer's non-conforming row is what this file exists to report back to the producer, so a
+    field of the wrong shape is the case it must survive: dereferencing one directly ends the run
+    with a traceback, and the batch then reports neither that row's other violations nor any other
+    row's.
+    """
+    value = node.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 RUNS, JUDGEMENTS = "runs", "judgements"
 SCHEMA_OF = {RUNS: "run-record.schema.json", JUDGEMENTS: "judgement-record.schema.json"}
 ID_OF = {RUNS: "run_id", JUDGEMENTS: "judgement_id"}
+
+
+def names_a_publisher(value: object) -> bool:
+    """Whether a value names one of the organisation's writing identities.
+
+    Compared case-insensitively and with the `[bot]` suffix the host appends taken off first, so
+    that `exeris-bot`, `Exeris-Bot` and `exeris-agent[bot]` are one name in three spellings rather
+    than one refusal and two ways past it.
+    """
+    if not isinstance(value, str):
+        return False
+    name = value.strip().lower()
+    if name.endswith("[bot]"):
+        name = name[:-len("[bot]")]
+    return name in PUBLISHERS
 
 
 class Report:
@@ -115,7 +155,7 @@ def check(root: str, rep: Report) -> list[str]:
         if kind == RUNS:
             # Rule 1. One visibility per inbox, fail-closed: a row that does not match belongs in
             # the sibling repository's inbox, not repaired into this one.
-            state = body.get("repository_state") or {}
+            state = obj(body, "repository_state")
             if state.get("visibility") != declared:
                 rep.error(path, f"declares `repository_state.visibility: "
                                 f"{state.get('visibility')!r}` in an inbox whose identity is "
@@ -126,7 +166,7 @@ def check(root: str, rep: Report) -> list[str]:
             # Measured over every execution log the review runner had produced by that date — none
             # exposes a dated snapshot for the model that takes the turns. Writing the alias into
             # the snapshot field would make every row claim a precision no row has.
-            agent = body.get("agent") or {}
+            agent = obj(body, "agent")
             model_id, snapshot = agent.get("model_id"), agent.get("model_snapshot")
             if isinstance(model_id, str) and isinstance(snapshot, str):
                 if snapshot == model_id:
@@ -142,9 +182,31 @@ def check(root: str, rep: Report) -> list[str]:
                                     f"`{snapshot[len('unresolved:'):]}` as unresolved while "
                                     f"`agent.model_id` is `{model_id}` — the marked form carries "
                                     f"this row's own alias, not another one")
+            # A publisher's name is not an agent's (ADR-087 §A.4). `agent.*` is the model
+            # reference — who was asked; an App the organisation installs is who ACTED, and the
+            # row says that in `execution.principal`, which is why that field is not read here.
+            # A row naming the pen as the agent puts an identity into the column a comparison
+            # across models groups by, and the comparison then reads as a model's result.
+            harness = obj(agent, "harness")
+            for field, value in (("provider", agent.get("provider")),
+                                 ("model_id", agent.get("model_id")),
+                                 ("harness.client", harness.get("client"))):
+                if names_a_publisher(value):
+                    rep.error(path, f"`agent.{field}` is `{value}` — agent.* names a publisher — "
+                                    f"the bot is the pen, never the agent; the identity a run "
+                                    f"acted under belongs in `execution.principal`")
+            group = obj(body, "pairing").get("group_id")
+            # Rule 6. `adhoc:` says nobody planned the task, and `pairing` is a group declared
+            # before its arms ran — a row cannot be in a declaration that was never made, and
+            # admitting one would let a group be assembled afterwards, which is the post-hoc
+            # operation `pairing` exists to prevent.
+            fingerprint = obj(body, "workload").get("fingerprint")
+            if isinstance(fingerprint, str) and fingerprint.startswith("adhoc:") and group:
+                rep.error(path, f"carries `workload.fingerprint: {fingerprint}` beside "
+                                f"`pairing.group_id: {group}` — an adhoc: task was never planned, "
+                                f"so it belongs to no group")
             if own_id is not None:
                 runs[str(own_id)] = body
-            group = (body.get("pairing") or {}).get("group_id")
             if group:
                 groups.setdefault(str(group), []).append((path, body))
         else:
@@ -170,7 +232,7 @@ def check(root: str, rep: Report) -> list[str]:
         # replicate, and a replicate is a distinct slot (§E.22).
         arms: dict[str, list[str]] = {}
         for path, member in members:
-            arms.setdefault(str((member.get("pairing") or {}).get("arm")), []).append(path)
+            arms.setdefault(str(obj(member, "pairing").get("arm")), []).append(path)
         for arm, paths in sorted(arms.items()):
             if len(paths) > 1:
                 for path in paths:
@@ -181,7 +243,10 @@ def check(root: str, rep: Report) -> list[str]:
         "Full JSON Schema conformance is **checkable, not checked** by this file: the schemas are "
         "Draft 2020-12 compositions and this validator imports nothing. What runs it against them "
         "is the `schema` job of `.github/workflows/inbox.yml`. What is checked here is the "
-        "cross-file half of ADR-086 §G.34, which no single schema can express.",
+        "cross-file half of ADR-086 §G.34, which no single schema can express, and the "
+        "within-record rules that read a sibling field or a name this contract does not own: an "
+        "alias repeated as a snapshot, an `adhoc:` row claiming a group, and a publisher's name "
+        "written into `agent.*`.",
     ]
 
 

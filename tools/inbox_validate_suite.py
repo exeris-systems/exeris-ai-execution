@@ -190,12 +190,105 @@ def _(root):
     assert "this row's own alias" in out, out
 
 
+# A local runtime names the weights it ran, and a digest is an alias of nothing: the rule above
+# reads a snapshot against this row's own `model_id`, and the `sha256:` form is not in that
+# comparison at all. The two live one `elif` apart, which is the distance a widening edit has to
+# cover without taking the alias rule with it.
+@case("weights named by digest are not an alias repeated")
+def _(root):
+    local = run_record()
+    local["agent"]["model_id"] = "llama3:70b"
+    local["agent"]["model_snapshot"] = "sha256:" + "a" * 64
+    local["accounting"]["mode"] = "local"
+    build(root, runs=[local])
+    code, out = validate(root)
+    assert code == 0, out
+
+
 @case("rule 5 — a judgement resolves to its run or it is about nothing")
 def _(root):
     build(root, runs=[run_record("R-1")], judgements=[judgement("J-1", run_id="R-404")])
     code, text = validate(root)
     assert code == 1, text
     assert "is not a run record in this inbox" in text, text
+
+
+# Rule 6, on §F.31's third fingerprint class. `adhoc:` says the run was never planned, and a group
+# is a plan: a row carrying both claims a preregistration that does not exist, and the claim is the
+# one thing a paired comparison cannot survive. The schema refuses the pair within one record; this
+# is the same rule where the inbox can see it, which is where a producer's rows are read.
+@case("rule 6 — an adhoc run was never planned, so it joins no group")
+def _(root):
+    doc = run_record(group="G-1", arm="exeris")
+    doc["workload"]["fingerprint"] = "adhoc:01JBQ8Z9K3W7YV4X2M5N6P7R8T"
+    build(root, runs=[doc])
+    code, text = validate(root)
+    assert code == 1, text
+    assert "never planned" in text, text
+
+
+@case("an unplanned run that joins nothing is what the class is for")
+def _(root):
+    doc = run_record()
+    doc["workload"]["fingerprint"] = "adhoc:01JBQ8Z9K3W7YV4X2M5N6P7R8T"
+    build(root, runs=[doc])
+    code, text = validate(root)
+    assert code == 0, text
+
+
+@case("a planned run and a CI-observed one each keep their group")
+def _(root):
+    planned = run_record("R-1", group="G-1", arm="exeris")
+    planned["workload"]["fingerprint"] = "reg:task-0001"
+    observed = run_record("R-2", group="G-2", arm="exeris")
+    observed["workload"]["fingerprint"] = "ci:abc"
+    build(root, runs=[planned, observed])
+    code, text = validate(root)
+    assert code == 0, text
+
+
+# The publisher's name is not a model's, a provider's or a harness client's (ADR-087 §A.4). Three
+# Apps write under the organisation's own names, and a row that puts one of them in `agent.*` says
+# the publisher took the turns — the one thing none of the three does. The refusal is on the field,
+# not on the string: `execution.principal` is where a platform identity is the answer, so those
+# names are correct there and the rule has to leave that field alone by construction.
+@case("a publisher's name is not a model's")
+def _(root):
+    doc = run_record()
+    doc["agent"]["model_id"] = "exeris-bot"
+    build(root, runs=[doc])
+    code, text = validate(root)
+    assert code == 1, text
+    assert "exeris-bot" in text, text
+
+
+@case("nor a harness client's, however the login is spelled")
+def _(root):
+    doc = run_record()
+    doc["agent"]["harness"]["client"] = "exeris-inbox[bot]"
+    build(root, runs=[doc])
+    code, text = validate(root)
+    assert code == 1, text
+    assert "exeris-inbox" in text, text
+
+
+@case("nor a provider's, however it is capitalised")
+def _(root):
+    doc = run_record()
+    doc["agent"]["provider"] = "Exeris-Agent"
+    build(root, runs=[doc])
+    code, text = validate(root)
+    assert code == 1, text
+    assert "Exeris-Agent" in text, text
+
+
+@case("and the principal is the field where such a name is the answer")
+def _(root):
+    doc = run_record()
+    doc["execution"]["principal"] = {"kind": "app", "login": "exeris-agent[bot]"}
+    build(root, runs=[doc])
+    code, text = validate(root)
+    assert code == 0, text
 
 
 @case("a replicate in its own slot is not a collision")
@@ -205,6 +298,20 @@ def _(root):
     build(root, runs=[a, b])
     code, text = validate(root)
     assert code == 0, text
+
+
+# A row of the wrong SHAPE is a producer defect like any other, and this file's whole job is to
+# report one back to the producer. A field the row writes as a string where the contract writes an
+# object is the case that reaches the validator's own dereferences, so the rule it violates has to
+# still be printed — and so does every other row in the batch, which a traceback would take with it.
+@case("a field of the wrong shape is reported, not crashed on")
+def _(root):
+    doc = run_record(visibility="enterprise-private")
+    doc["agent"]["harness"] = "claude-code"
+    build(root, visibility="public", runs=[doc])
+    code, text = validate(root)
+    assert code == 1, text
+    assert "belongs in the sibling inbox" in text, text
 
 
 @case("a record missing a key the schema requires is a producer defect")

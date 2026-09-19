@@ -38,9 +38,9 @@
       ],
       "properties": {
         "fingerprint": {
-          "description": "An opaque identity for the task. Under `reg:` it is stable over time: the same value when the same task is run again after a fence, under a new oracle or a new model snapshot, so that \"the same task under different conditions\" is something the dataset can say. The stability holds under both derivations: neither carries a key, so nothing rotates and nothing hands the same task a second identity.\n\nIt is not the join key for a preregistered comparison — `pairing.group_id` is. This is a stated departure from the RFC table, whose third column calls the fingerprint \"the join key for paired runs\": `pairing`, itself not from the table, took that role, because a key that is declared beats a key that is recovered, and grouping rows by fingerprint to reconstruct a comparison is the post-hoc operation `pairing` exists to prevent.\n\nNever a bare digest of the task's text. A plain hash of a short description is a confirmation oracle: anyone who guesses the sentence verifies it against a published row, which would reopen through this field exactly the leak `scope` is closed to prevent, in a form that looks safe because it looks like a hash.\n\nTwo sanctioned derivations, one per producer class, and the prefix says which — because two producers deriving one task differently is the way \"stable across arms\" fails that no validator can see.\n\n`reg:<id>` — an opaque identifier assigned by the private task registry when the task is planned, and the first choice. Preregistration already requires the task's description to exist in a private place before any arm runs; that document is a registry, and a registry assigns identifiers. Nothing is derived, so nothing can be reversed and no input of the task's can be guessed at all. That is why it is the first choice rather than a preference.\n\n`ci:<digest>` — a plain SHA-256 over `(repository, pull request number, head sha)`, for a producer with no access to the registry: the CI bot. IT CARRIES NO KEY, and the paragraph above says why one is not needed rather than being excepted: a confirmation oracle matters where the guessed input is not otherwise in the row, and these three are. `repository_state` REQUIRES the repository and the commit in clear in the same row, so a MAC would be guarding what is printed beside it — in either inbox, since whoever reads the row reads `repository_state` too — while its rotation would hand every task a new identity and write a fence, losing the stability `reg:` is preferred for. The argument rests on `repository_state.repository` staying required: if that goes, the key comes back. ADR-087, amendment of 2026-09-17.\n\nThe two prefixes name disjoint universes of task — planned tasks, and CI events — so a value from one never joins a value from the other, and never does so silently.\n\nA fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
+          "description": "An opaque identity for the task. Under `reg:` it is stable over time: the same value when the same task is run again after a fence, under a new oracle or a new model snapshot, so that \"the same task under different conditions\" is something the dataset can say. The stability holds under both derivations of a task's identity: neither carries a key, so nothing rotates and nothing hands the same task a second identity.\n\nIt is not the join key for a preregistered comparison — `pairing.group_id` is. This is a stated departure from the RFC table, whose third column calls the fingerprint \"the join key for paired runs\": `pairing`, itself not from the table, took that role, because a key that is declared beats a key that is recovered, and grouping rows by fingerprint to reconstruct a comparison is the post-hoc operation `pairing` exists to prevent.\n\nNever a bare digest of the task's text. A plain hash of a short description is a confirmation oracle: anyone who guesses the sentence verifies it against a published row, which would reopen through this field exactly the leak `scope` is closed to prevent, in a form that looks safe because it looks like a hash.\n\nThree classes, one per producer situation, and the prefix says which — because two producers deriving one task differently is the way \"stable across arms\" fails that no validator can see.\n\n`reg:<id>` — an opaque identifier assigned by the private task registry when the task is planned, and the first choice. Preregistration already requires the task's description to exist in a private place before any arm runs; that document is a registry, and a registry assigns identifiers. Nothing is derived, so nothing can be reversed and no input of the task's can be guessed at all. That is why it is the first choice rather than a preference.\n\n`ci:<digest>` — a plain SHA-256 over `(repository, pull request number, head sha)`, for a producer with no access to the registry: the CI bot. IT CARRIES NO KEY, and the paragraph above says why one is not needed rather than being excepted: a confirmation oracle matters where the guessed input is not otherwise in the row, and these three are. `repository_state` REQUIRES the repository and the commit in clear in the same row, so a MAC would be guarding what is printed beside it — in either inbox, since whoever reads the row reads `repository_state` too — while its rotation would hand every task a new identity and write a fence, losing the stability `reg:` is preferred for. The argument rests on `repository_state.repository` staying required: if that goes, the key comes back. ADR-087, amendment of 2026-09-17.\n\n`adhoc:<id>` — a run nobody planned: started by hand, against no registry entry, and named by the producer's own identifier for the run. It exists so that such a run is captured rather than dropped, and it identifies the RUN and not a task, so nothing here is stable across anything and no second run ever carries this value. It joins nothing: the root constraint below refuses `pairing` on a row that carries it, and the inbox validator says the same thing in the inbox's own words, because a task nobody planned was never an arm of a declared group (ADR-086 §F.31, §G.34). A harness asks for `reg:` first for exactly that reason — the class is the honest record of an unplanned run, not a convenience.\n\nThe three prefixes name disjoint universes — planned tasks, CI events, and runs nobody planned — so a value from one never joins a value from another, and never does so silently.\n\nA fingerprint derived from anything model-specific silently unpairs the runs it exists to pair.",
           "type": "string",
-          "pattern": "^(reg|ci):[A-Za-z0-9][A-Za-z0-9._-]{3,120}$",
+          "pattern": "^(reg|ci|adhoc):[A-Za-z0-9][A-Za-z0-9._-]{3,120}$",
           "maxLength": 128
         },
         "domain": {
@@ -154,11 +154,21 @@
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._:/@+-]*[A-Za-z0-9])?$"
         },
         "model_snapshot": {
-          "description": "The dated or versioned snapshot behind `model_id`. An id whose snapshot moved names a different model, and rows either side of the move are not comparable.\n\nWhere the runtime exposes no snapshot for the model that took the turns, the field carries `unresolved:<model_id>` — the alias, marked so that neither a reader nor a query can read it as a snapshot. An unexposed snapshot is a property of the INSTRUMENT, not a value of the datum: `instrument.fence` carries the state, rows are comparable within a fence and never across one. The bare alias is refused, because one alias may name different weights at different times and a row that cannot tell is worse than a row that says it cannot. `model_snapshot` equal to `model_id` is that refusal, and it is enforced by `tools/inbox_validate.py` — JSON Schema compares a value against a constant, never against its sibling. So is the other half: what follows `unresolved:` must be THIS row's `model_id`, because a mark naming some other alias marks nothing.\n\nThe pattern is `unresolved:` over `model_id`'s own body, and the two are written to stay that way — a snapshot field narrower than the id it marks would leave vendor ids containing `/` or `@` with no valid marked form at all.\n\nThe SAME PARITY IN LENGTH, which is the half that was missed the first time: this field's `maxLength` is `model_id`'s plus the eleven characters of `unresolved:`. Equal caps would have left every id of 118 characters or more unmarkable — the identical defect, one axis over, under a commit claiming the defect closed. ADR-086, amendment of 2026-09-17.",
+          "description": "The dated or versioned snapshot behind `model_id`. An id whose snapshot moved names a different model, and rows either side of the move are not comparable.\n\nWhere the runtime exposes no snapshot for the model that took the turns, the field carries `unresolved:<model_id>` — the alias, marked so that neither a reader nor a query can read it as a snapshot. An unexposed snapshot is a property of the INSTRUMENT, not a value of the datum: `instrument.fence` carries the state, rows are comparable within a fence and never across one. The bare alias is refused, because one alias may name different weights at different times and a row that cannot tell is worse than a row that says it cannot. `model_snapshot` equal to `model_id` is that refusal, and it is enforced by `tools/inbox_validate.py` — JSON Schema compares a value against a constant, never against its sibling. So is the other half: what follows `unresolved:` must be THIS row's `model_id`, because a mark naming some other alias marks nothing.\n\nThe pattern is `unresolved:` over `model_id`'s own body, and the two are written to stay that way — a snapshot field narrower than the id it marks would leave vendor ids containing `/` or `@` with no valid marked form at all.\n\nTHE SAME PARITY IN LENGTH: the marked form's cap is `model_id`'s plus the eleven characters of `unresolved:`, carried by that form's own branch below rather than by the field, so that a second form's longer cap cannot quietly lift it. Equal caps would leave every id of 118 characters or more unmarkable. ADR-086, amendment of 2026-09-17.\n\nThe local form. Where the weights run on hardware this organisation controls there is no vendor snapshot to name, and a version string a server prints is not one: the snapshot is the digest of what actually ran. `sha256:<64 hexadecimal digits>` names the weights, and `+sha256:<64 more>` names the adapter loaded over them where one is (RFC-2026-09-18). Two digests because a base and an adapter are two artefacts and a run under a changed adapter is not comparable with one under the base — the value names both or the row names neither, and a changed adapter writes a fence like any other instrument change. A value that opens `sha256:` is read as a digest and as nothing else, so a truncated or upper-case one is refused rather than admitted as a vendor-shaped string that happens to start with a word.\n\nWeights this organisation can digest are weights it hosts, which is what `accounting.mode: local` says, so the root constraint below requires that mode on a row carrying this form. The two halves are one fact stated twice, and a row stating one half claims a provider billed for a model nobody can show it ran.",
           "type": "string",
           "minLength": 1,
-          "maxLength": 139,
-          "pattern": "^(unresolved:)?[A-Za-z0-9](?:[A-Za-z0-9._:/@+-]*[A-Za-z0-9])?$"
+          "maxLength": 143,
+          "anyOf": [
+            {
+              "$comment": "The vendor form, marked or resolved, over `model_id`'s own body and at `model_id`'s own cap of 128 plus the eleven characters of `unresolved:`. The cap lives on this branch because the field's cap is the longer local form's, and parity is with the id this form marks. The lookahead is what keeps a value opening the WORD `sha256:` out of this branch, in every casing of that word: without it a truncated or shouted digest reads as an ordinary vendor string, is admitted here as a snapshot, and passes the root constraint keyed on the same prefix without meeting it. The word is matched case-blind and the digest under it is not — a digest has one spelling, and the word introducing it has one meaning.",
+              "maxLength": 139,
+              "pattern": "^(?![Ss][Hh][Aa]256:)(unresolved:)?[A-Za-z0-9](?:[A-Za-z0-9._:/@+-]*[A-Za-z0-9])?$"
+            },
+            {
+              "$comment": "The local form: the weights' digest, and the adapter's where one is loaded over them. Fixed length and lower case, because one artefact has one spelling here or the field identifies two things.",
+              "pattern": "^sha256:[0-9a-f]{64}(\\+sha256:[0-9a-f]{64})?$"
+            }
+          ]
         },
         "harness": {
           "description": "The client that ran the model, and its version. One model under two clients is two harnesses, not one.",
@@ -229,7 +239,7 @@
       }
     },
     "execution": {
-      "description": "RFC table: `Execution` — event stream, tool calls, turns, wall time, with metadata separated from potentially sensitive content. That separation is this component's shape: the counts are here, the stream is referenced. Prompts, file content and tool arguments never appear in a run record.",
+      "description": "RFC table: `Execution` — event stream, tool calls, turns, wall time, with metadata separated from potentially sensitive content. That separation is this component's shape: the counts are here, the stream is referenced. Prompts, file content and tool arguments never appear in a run record.\n\nThe four the table names are required. Everything beside them is optional, marked on its own field, and governed by one rule: a producer that cannot establish a value leaves the field absent. A convenient default — `0` for a count nobody measured, `[]` for a list nobody read — is indistinguishable from a measurement once it is in the column, and `execution.capture_level` is how a row says which of these its producer could see at all.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -275,6 +285,121 @@
               "type": "integer",
               "minimum": 0
             }
+          }
+        },
+        "tool_surface": {
+          "description": "SHA-256 over a canonical statement of what the run was permitted to do: the allow-list of tools the client was launched with, and the permission rules in force in the checkout at `repository_state.commit`. Named by ADR-086 §C.14a.\n\nTwo rows are comparable only where the runner's powers are recorded. One workflow under two repositories can deny every `gh` call in the first and allow all of them in the second, and then `execution.tool_calls` and `execution.permission_denials` count different things on two rows naming the same runner and the same routine.\n\nThe CI producer fills it from the allow-list its workflow passes and the permission file in the checkout; a local harness fills it from the manifest it grants the run. An absent allow-list and an absent permission file are recorded states inside the canonicalisation, not an absent field — a run under no allow-list is a run whose powers are known. The client's own tool manifest is deliberately outside the hash: it says what the client offers, not what this run was permitted.\n\nThe canonicalisation is the producer's and is documented by it, so the hash compares only across producers that canonicalise alike; a change to it is a change to the instrument and writes a new `instrument.fence`. A producer that cannot read what the run was permitted leaves the field absent, because no digest means \"unrestricted\".",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "verdict_route": {
+          "description": "Which transport carried the verdict this run produced. Named by ADR-086 §C.14a. The route is not constant — one reviewing runner has delivered a verdict as a written file and as an execution log on the same pull request — so a row that does not say which transport carried it cannot be compared with one that does.\n\nThe values are the publishing step's own vocabulary with its spaces written as hyphens, which is the whole of the mapping a producer performs. `none` is a measurement: the publisher looked along every transport and found no verdict.\n\nFilled by a producer that can see the publication — the CI producer reads it from the publishing step that ran beside it. A producer that publishes no verdict, or that cannot tell which of several runs a published verdict came from, leaves the field absent. Absent is not `none`: `none` says the publisher looked.",
+          "enum": [
+            "file",
+            "execution-log",
+            "fenced-block",
+            "none"
+          ]
+        },
+        "permission_denials": {
+          "description": "How many times the client refused a tool call because the run's permissions did not admit it. Named by ADR-086 §C.14a. Meaningful only beside `execution.tool_surface`, which says what those permissions were: the same count under two surfaces is two different measurements.\n\nFilled by a producer that reads the runtime's own record of refusals — the CI producer from the execution log's refusal events, a local harness from the client's hook surface. Where the runtime exposes no such event the field is absent and `execution.capture_level` says so. Never `0` in that case: a run nothing refused and a run nobody watched would then carry one value.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "scope_denials": {
+          "description": "How many times the run's own scope rules refused an action — a push to a ref other than the run's branch, a mutation of a pull request or an issue other than the run's. Not from the RFC table (ADR-086 §C.14b). The attempt is the datum: a run under a scope-bounding harness produces no out-of-scope commit either way, so what the field exposes is the rate at which one was attempted. Meaningful only beside `execution.tool_surface`.\n\nFilled by a harness that bounds scope and observes its own refusals. A producer with no scope rules — a CI reviewer that writes nothing has none — leaves the field absent, because `0` would report a gate that never ran.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "capture_level": {
+          "description": "How much of this component the producer could observe, so that a reader can tell an absent field from an unobserved one. Named by RFC-2026-09-17 and RFC-2026-09-18.\n\n`full` — every count here comes from the runtime's own event record. `counts-only` — the required counts are observed and the optional per-event fields are not. `identity-only` — the producer establishes the run's identity and its wall time and nothing more; no row can carry it today, because `turns`, `tool_calls` and `event_stream` are required, and it is admitted now so that the producer which reaches that level adds no enum value later, a change that would be MAJOR under ADR-086 §C.9.\n\nFilled by every producer, which knows what its own runtime exposes. A producer that cannot say leaves the field absent rather than claiming `full`, and the fields it could not establish are absent beside it.",
+          "enum": [
+            "full",
+            "counts-only",
+            "identity-only"
+          ]
+        },
+        "principal": {
+          "description": "The authenticated platform identity the producer acted under when it pushed this run's commits or opened its pull request. Named by ADR-086 §C.14b, from RFC-2026-09-17.\n\nIt is here and never in `agent.*`. `agent` is the model reference — who was asked; this is the identity the run's writes reached the host under — who acted. A publisher's or a row writer's name in `agent.*` is refused by `tools/inbox_validate.py` for exactly that reason (ADR-087 §A.4), and this field is the place such a name is legitimate.\n\nFilled by a producer that holds a credential of its own and can name the identity it minted: a harness acting as the organisation's execution identity writes `{kind: app, …}`. A producer running under a workflow's ambient token, and a run that wrote nothing, leave the whole object absent — a login read from a git configuration is a setting, not an authenticated identity, and is not written here.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "login"
+          ],
+          "properties": {
+            "kind": {
+              "description": "`app`: an installed platform application, whose login the host suffixes `[bot]`. `user`: a person, or a machine account, whose login it does not. The host draws this line itself and the two are not interchangeable: a check that asks whether a human acted reads the kind, and a login is the evidence for it.",
+              "enum": [
+                "app",
+                "user"
+              ]
+            },
+            "login": {
+              "description": "The login exactly as the host spells it, `[bot]` suffix included where the host appends one. Spelled otherwise, it joins to nothing the host says about the same identity.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\[bot\\])?$"
+            }
+          },
+          "allOf": [
+            {
+              "$comment": "The two halves are one statement, and a row that disagrees with itself about which it made is worse than a row that says neither: the host's own suffix is what separates an application from a person, so a `kind` that contradicts the login leaves nothing to trust in either.",
+              "if": {
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "app"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "login": {
+                    "pattern": "\\[bot\\]$"
+                  }
+                }
+              }
+            },
+            {
+              "$comment": "The other half. A `[bot]` login under `kind: user` would let a row claim a human acted where an application did, which is the one claim this field exists to make checkable.",
+              "if": {
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "user"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "login": {
+                    "not": {
+                      "pattern": "\\[bot\\]$"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "human_prompts": {
+          "description": "How many prompts a person submitted to this run after the first. Named by ADR-086 §C.14b, from RFC-2026-09-17. The first prompt is what started the run, so what is counted here is steering: a run at `0` was asked once and left to finish. It is a count and not a class — what a reader wants to call the run is derived from it at analysis time, because a stored class is a thing a producer fills conveniently.\n\nA count is metadata under ADR-086 §C.12; the text of a prompt is not, and never appears in a row.\n\nFilled by a producer whose runtime exposes a prompt-submission event. Where the runtime exposes none the field is absent and `execution.capture_level` says so. Never `0` in that case: an unsteered run and an unobservable one would then be one value, and the second is the one a reader must not mistake for the first.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "result_commits": {
+          "description": "The commits this run produced, oldest first. Named by RFC-2026-09-17: what became of a pull request is read by joining its commits to the runs that claim them, and no other field says which commits a run claims.\n\nAn empty array is a measurement — the producer watched the run's branch and the run committed nothing. Absent is the other answer: the producer could not establish what the run committed, having no branch of its own or no way to attribute commits on one. A producer that cannot say writes no array rather than an empty one, because the two readings are not recoverable from each other afterwards.\n\nFilled by a producer that owns the run's worktree and lists the commits between the commit the run started from and its branch head. A producer that reviews a tree it does not write — the CI reviewer — leaves the field absent. Each commit appears once: this is the set of commits the run produced, in order, not a log of how often each was pushed.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
           }
         }
       }
@@ -439,6 +564,7 @@
       ],
       "properties": {
         "capture_version": {
+          "description": "The version of the row contract this row was written against: the value in `schemas/VERSION`, moved by the SemVer ADR-086 §C.9 fixes over the contract — a new required field, a removed or renamed field or a changed enum is MAJOR and writes a fence, a new optional field is MINOR, wording is PATCH.\n\nIt is the contract's version and never the producer's. Two producers writing rows against one contract write one value here; what each of them was — which producer, at what version of its own code, under which canonicalisation — is carried by `instrument.fence`. A column meaning both would mean neither, and this field has no namespace in which to say which it meant.",
           "type": "string",
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
         },
@@ -545,6 +671,70 @@
           "required": [
             "human_baseline"
           ]
+        }
+      }
+    },
+    {
+      "$comment": "A run nobody planned was never an arm of anything. `pairing` declares a group before its arms run, so a row whose fingerprint says the task was never planned cannot have been in that declaration; admitting one would let a group be assembled after the fact, which is the post-hoc operation `pairing` exists to prevent (ADR-086 §F.31). The inbox validator carries the same rule, because the rule has to hold where no JSON Schema validator is installed (ADR-086 §G.34).",
+      "if": {
+        "required": [
+          "workload"
+        ],
+        "properties": {
+          "workload": {
+            "required": [
+              "fingerprint"
+            ],
+            "properties": {
+              "fingerprint": {
+                "pattern": "^adhoc:"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "pairing"
+          ]
+        }
+      }
+    },
+    {
+      "$comment": "A snapshot given as a digest names weights on hardware this organisation runs, and no provider billed for that run. `accounting.mode` says which ledger a row belongs to, so a digest under `api` or `subscription` claims a provider served a model nobody can show it served. The two readings are indistinguishable once they share a column, which is the same reason §C.14 admits a cost figure only on an `api` row and drops an imputed one from every row (ADR-086 §C.13, §C.14, RFC-2026-09-18). The prefix is read in every casing of the word, because the branch above refuses every casing of it as a vendor string: a spelling this constraint could not see would record a locally served run under a provider's ledger.",
+      "if": {
+        "required": [
+          "agent"
+        ],
+        "properties": {
+          "agent": {
+            "required": [
+              "model_snapshot"
+            ],
+            "properties": {
+              "model_snapshot": {
+                "pattern": "^[Ss][Hh][Aa]256:"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "accounting"
+        ],
+        "properties": {
+          "accounting": {
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "const": "local"
+              }
+            }
+          }
         }
       }
     }
