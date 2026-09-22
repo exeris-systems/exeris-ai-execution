@@ -17,11 +17,17 @@ here may say which model to use. Everything else in this repository follows from
   `started_at`, `repository_state.repository`, `repository_state.visibility`, `pairing` — each
   carrying a "Not from the RFC table" note in its own description, and each a condition either of
   one of the table's own disciplines being executable, or of a row being placeable in the right
-  inbox without leaking what it was.
+  inbox without leaking what it was. `execution.scope_denials` carries the same note; the other
+  optional `execution` fields name the clause or record that introduced them.
 - `schemas/judgement-record.schema.json` — the shape of a verdict reached after the run ended, filed
   against the run it judges (ADR-086 §C.12a).
+- `schemas/VERSION` — the row contract's version, and the only place it is declared. It is what a
+  row's `instrument.capture_version` carries, and it moves by the SemVer of ADR-086 §C.9.
 - `inbox/` — the landing zone for records produced elsewhere, before there is a store to put them
   in. See `inbox/README.md` for its convention.
+- `docs/fences.md` and `docs/oracles.md` — the two registers a row's values resolve in: which fence
+  ids exist and what each marks, and which `oracle.id` and `oracle.version` a producer may write
+  today with the calibration state each carries.
 
 That is all there is today, and deliberately so: no store, no analysis, no oracle implementation,
 no router. A capture shape that has never met a real row is the thing most likely to be wrong, so
@@ -44,8 +50,8 @@ group with no human arm declares, are on `pairing` in `schemas/run-record.schema
   `schemas/run-record.schema.json`.
 - `repository_state.visibility` — the ADR-020 mapping; the rule is on the field in
   `schemas/run-record.schema.json`.
-- `workload.fingerprint` — the `reg:` and `ci:` producer classes; the rule is on the field in
-  `schemas/run-record.schema.json`.
+- `workload.fingerprint` — the `reg:`, `ci:` and `adhoc:` producer classes; the rule is on the
+  field in `schemas/run-record.schema.json`.
 
 How to *derive* these values in a particular runtime — what a CI producer hashes, where it reads a
 snapshot from, which figures it drops — is not schema semantics and does not live here; it belongs
