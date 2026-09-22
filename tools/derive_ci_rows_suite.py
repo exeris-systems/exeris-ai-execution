@@ -106,7 +106,20 @@ ROUTINE = "guardrails-org/docs-guardrails-review.md"
 AGENTS_MD = "repo/AGENTS.md"
 MANIFEST = "repo/.agents/manifest.yaml"
 SETTINGS = "repo/.claude/settings.json"
-CALLER = "repo/.github/workflows/guardrails.yml"
+CALLER = "repo/workflows/guardrails.yml"
+
+# Where the fake host serves those bytes from — the REST paths the deriver asks for, which are the
+# paths the files have in the repositories they belong to rather than the paths they are kept at
+# here. They are named once because a case that registered one spelling and a deriver that asked
+# for another would agree about everything except the lookup.
+REVIEW_REST_PATH = ".github/workflows/docs-review.yml"
+CALLER_REST_PATH = ".github/workflows/guardrails.yml"
+MANIFEST_REST_PATH = ".agents/manifest.yaml"
+
+# The expression the prompt template carries for the caller's own extension path. Written out
+# because a case that misspelt it would supply a substitution the template never asks for, and the
+# render would then refuse a template this suite is asserting renders.
+ROUTINE_EXPRESSION = "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}"
 
 # The five expressions the produce job's prompt carries, and what the fixture substitutes into
 # each. The first two come from the event, the third from the L1 job conclusions through the
@@ -119,8 +132,7 @@ SUBS = {
     "${{ steps.gates.outputs.checks_run }}":
         '[{"check":"docs-lint","result":"pass"},{"check":"commit-lint","result":"pass"},'
         '{"check":"pr-body-check","result":"fail"}]',
-    "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}":
-        "docs/repo-review-rules.md",
+    ROUTINE_EXPRESSION: "docs/repo-review-rules.md",
     "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}": "repo-checks.out",
 }
 
@@ -164,8 +176,7 @@ SUBS_L1 = {
     "${{ github.event.pull_request.number }}": "7",
     "${{ github.repository }}": REPO,
     "${{ inputs.l1-results }}": L1_RESULTS_INPUT,
-    "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}":
-        "docs/repo-review-rules.md",
+    ROUTINE_EXPRESSION: "docs/repo-review-rules.md",
     "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}": "repo-checks.out",
 }
 
@@ -212,6 +223,16 @@ FINGERPRINT = "ci:9675a802e85fcf87bdb5858a746d18e4ade46b5c3acb8fc6854b6dae575b8f
 # ---------------------------------------------------------------------------------------------
 # The fake host.
 
+# The producer under test, imported by name because one case replaces a module-level name on it.
+DERIVER = "tools.derive_ci_rows"
+# A contents URL read back into the (repository, path) the fixture registered it under.
+CONTENTS_URL = re.compile(r"repos/([^/]+/[^/]+)/contents/(.+)$")
+
+
+def deriver():
+    return importlib.import_module(DERIVER)
+
+
 def fixture(name: str) -> str:
     with open(os.path.join(FIXTURES, name), encoding="utf-8") as fh:
         return fh.read()
@@ -236,7 +257,7 @@ class FakeFetcher:
         # into the by-(repo, path, ref) map so that one lookup serves them however the URL is spelt.
         for key in [k for k in self.bodies if "/contents/" in k]:
             bare, params = self._split(key)
-            m = re.match(r"repos/([^/]+/[^/]+)/contents/(.+)$", bare)
+            m = CONTENTS_URL.match(bare)
             self.files[(m.group(1), m.group(2), params.get("ref", ""))] = self.bodies.pop(key)
 
     def file(self, repo: str, path: str, ref: str, text: str) -> None:
@@ -247,7 +268,7 @@ class FakeFetcher:
 
     def drop(self, key: str) -> None:
         bare, params = self._split(key)
-        m = re.match(r"repos/([^/]+/[^/]+)/contents/(.+)$", bare)
+        m = CONTENTS_URL.match(bare)
         if m:
             self.drop_file(m.group(1), m.group(2), params.get("ref", ""))
             return
@@ -264,9 +285,15 @@ class FakeFetcher:
         return bare, params
 
     def get(self, url: str, *args, **kwargs) -> object:
+        # The same shape the real fetcher matches a path against before it reaches `gh api`.
+        # A fake that answered a path the producer would refuse would be answering questions
+        # the producer cannot ask, and the cases over it would stand on nothing.
+        module = deriver()
+        if not module.REST_PATH.fullmatch(url.lstrip("/")):
+            raise module.FetchError(f"{url}: not a REST path this derivation builds")
         self.asked.append(url)
         bare, params = self._split(url)
-        m = re.match(r"repos/([^/]+/[^/]+)/contents/(.+)$", bare)
+        m = CONTENTS_URL.match(bare)
         if m:
             repo, path = m.group(1), m.group(2)
             text = self.files.get((repo, path, params.get("ref", "")))
@@ -309,10 +336,10 @@ class World:
         self.private_visibility = "enterprise-private"
         self.commit = ""
         self.rest.file(REPO, "AGENTS.md", HEAD, fixture(AGENTS_MD))
-        self.rest.file(REPO, ".agents/manifest.yaml", HEAD, fixture(MANIFEST))
+        self.rest.file(REPO, MANIFEST_REST_PATH, HEAD, fixture(MANIFEST))
         self.rest.file(REPO, ".claude/settings.json", HEAD, fixture(SETTINGS))
-        self.rest.file(REPO, ".github/workflows/guardrails.yml", HEAD, fixture(CALLER))
-        self.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW))
+        self.rest.file(REPO, CALLER_REST_PATH, HEAD, fixture(CALLER))
+        self.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, fixture(DOCS_REVIEW))
         self.rest.file(ORG, "docs-guardrails-review.md", REF_SHA, fixture(ROUTINE))
 
     # -- building ------------------------------------------------------------------------------
@@ -324,7 +351,7 @@ class World:
         # every case that calls this asserting about the fixture's own scope class instead of the
         # one it asked for, so the count is checked rather than assumed.
         body, count = re.subn(r"(?m)^Scope class: .*$", f"Scope class: {scope}", body)
-        assert count == 1, f"the fixture body carries no `Scope class:` line to rewrite"
+        assert count == 1, "the fixture body carries no `Scope class:` line to rewrite"
         self.rest.bodies[f"repos/{REPO}/pulls/{PR}"] = dict(
             self.rest.bodies[f"repos/{REPO}/pulls/{PR}"], body=body)
 
@@ -375,13 +402,13 @@ class World:
     # -- running -------------------------------------------------------------------------------
 
     def run(self, *extra: str) -> tuple[int, str]:
-        deriver = importlib.import_module("tools.derive_ci_rows")
+        module = deriver()
         argv = ["--streams", self.streams, "--streams-commit", self.commit,
                 "--out", self.out, "--cache-dir", self.cache,
                 "--fence-date", FENCE_DATE, *extra]
         held, sys.stdout = sys.stdout, io.StringIO()
         try:
-            code = deriver.main(argv, fetcher=self.rest)
+            code = module.main(argv, fetcher=self.rest)
             text = sys.stdout.getvalue()
         finally:
             sys.stdout = held
@@ -554,7 +581,7 @@ def _(root):
     bad["agent"]["harness"]["client"] = "exeris-inbox[bot]"
     try:
         refuse(bad)
-    except Exception:                                      # noqa: BLE001 - the refusal is the point
+    except Exception:                                      # the class it arrives as is not it
         pass
     else:
         raise AssertionError("`harness.client: exeris-inbox[bot]` was not refused")
@@ -594,8 +621,8 @@ def _(root):
     refusing = os.path.join(root, "refusing")
     os.makedirs(refusing)
     w2 = World(refusing).build()
-    deriver = importlib.import_module("tools.derive_ci_rows")
-    held = deriver.check
+    module = deriver()
+    held = module.check
 
     def refuse_every(where, report):
         for here, _dirs, names in os.walk(os.path.join(where, "inbox")):
@@ -606,11 +633,11 @@ def _(root):
                     report.error(os.path.join(here, name), "x-refused-before-the-write")
         return []
 
-    deriver.check = refuse_every
+    module.check = refuse_every
     try:
         _code, out = w2.run()
     finally:
-        deriver.check = held
+        module.check = held
     assert_no_row(w2, out, "validator-refused")
 
 
@@ -726,7 +753,7 @@ def _(root):
     w2 = World(bare)
     template = fixture(DOCS_REVIEW)
     template = "\n".join(l for l in template.splitlines() if "--allowedTools" not in l) + "\n"
-    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, template)
+    w2.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, template)
     w2.build()
     code, out = w2.run()
     assert code == 0, out
@@ -765,7 +792,7 @@ def _(root):
     template = fixture(DOCS_REVIEW).replace(
         "            REPOSITORY CHECK OUTPUT:",
         "            RUN ATTEMPT: ${{ github.run_attempt }}\n            REPOSITORY CHECK OUTPUT:")
-    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, template)
+    w.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, template)
     w.build()
     _code, out = w.run()
     assert_no_row(w, out, "template", "unsupported", "${{")
@@ -818,7 +845,7 @@ def _(root):
     os.makedirs(renamed)
     w2 = World(renamed)
     caller = fixture(CALLER).replace('"docs-lint"', '"docs-gate"')
-    w2.rest.file(REPO, ".github/workflows/guardrails.yml", HEAD, caller)
+    w2.rest.file(REPO, CALLER_REST_PATH, HEAD, caller)
     w2.build()
     code, out = w2.run()
     assert code == 0, out
@@ -944,7 +971,7 @@ def _(root):
 @case("19 — no manifest and no vendor directory yields no row; a vendor directory alone names it")
 def _(root):
     w = World(root)
-    w.rest.drop_file(REPO, ".agents/manifest.yaml", HEAD)
+    w.rest.drop_file(REPO, MANIFEST_REST_PATH, HEAD)
     w.rest.drop(f"repos/{REPO}/contents/.agents/vendor?ref={HEAD}")
     w.build()
     _code, out = w.run()
@@ -953,7 +980,7 @@ def _(root):
     vendored = os.path.join(root, "vendored")
     os.makedirs(vendored)
     w2 = World(vendored)
-    w2.rest.drop_file(REPO, ".agents/manifest.yaml", HEAD)
+    w2.rest.drop_file(REPO, MANIFEST_REST_PATH, HEAD)
     w2.build()
     code, out = w2.run()
     assert code == 0, out
@@ -1093,7 +1120,7 @@ def _(root):
 @case("24 — a prompt taking inputs.l1-results renders this exact text and hashes to this digest")
 def _(root):
     w = World(root)
-    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW_L1))
+    w.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, fixture(DOCS_REVIEW_L1))
     w.build()
     code, out = w.run()
     assert code == 0, out
@@ -1114,7 +1141,7 @@ def _(root):
     unresolved = os.path.join(root, "unresolved")
     os.makedirs(unresolved)
     w2 = World(unresolved)
-    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW_L1))
+    w2.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, fixture(DOCS_REVIEW_L1))
     jobs = json.loads(json.dumps(w2.rest.bodies[f"repos/{REPO}/actions/runs/{RUN}/jobs"]))
     jobs["jobs"] = [j for j in jobs["jobs"] if j["name"] != "commits / lint"]
     w2.rest.bodies[f"repos/{REPO}/actions/runs/{RUN}/jobs"] = jobs
@@ -1171,7 +1198,7 @@ def _(root):
 @case("26 — a prompt written into a here-document renders the same text and hashes the same")
 def _(root):
     w = World(root)
-    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW_RENDERED))
+    w.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, fixture(DOCS_REVIEW_RENDERED))
     w.build()
     code, out = w.run()
     assert code == 0, out
@@ -1195,7 +1222,7 @@ def _(root):
     # the job took from the base commit — a different expression, and a fourth spelling this has to
     # supply or every run of the workflow that ships is refused over its own line break.
     based = fixture(DOCS_REVIEW_RENDERED).replace(
-        "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}",
+        ROUTINE_EXPRESSION,
         "${{ inputs.repo-routine != '' && 'repo-routine.base.md' || '(none)' }}")
     assert based != fixture(DOCS_REVIEW_RENDERED)
     subs = {k: v for k, v in SUBS.items() if "inputs.repo-routine" not in k}
@@ -1212,7 +1239,7 @@ def _(root):
     base_copy = os.path.join(root, "base-copy")
     os.makedirs(base_copy)
     w2 = World(base_copy)
-    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, based)
+    w2.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, based)
     w2.build()
     code, out = w2.run()
     assert code == 0, out
@@ -1253,7 +1280,7 @@ def _(root):
     unnamed = template.replace("${{ env.ALLOWED_TOOLS }}", "${{ env.NOT_DECLARED_HERE }}")
     assert unnamed != template
     w = World(root)
-    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, unnamed)
+    w.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, unnamed)
     w.build()
     _code, out = w.run()
     assert_no_row(w, out, "template", "unsupported", "${{")
@@ -1265,7 +1292,7 @@ def _(root):
     missing = os.path.join(root, "missing-step")
     os.makedirs(missing)
     w2 = World(missing)
-    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, orphan)
+    w2.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, orphan)
     w2.build()
     _code, out = w2.run()
     assert_no_row(w2, out, "template", "unsupported", "nowhere")
@@ -1277,7 +1304,7 @@ def _(root):
     unquoted = os.path.join(root, "unquoted")
     os.makedirs(unquoted)
     w3 = World(unquoted)
-    w3.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, expanded)
+    w3.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, expanded)
     w3.build()
     _code, out = w3.run()
     assert_no_row(w3, out, "template", "unsupported", "here-document")
@@ -1287,7 +1314,7 @@ def _(root):
 
 @case("28 — existing_directory refuses a path that is not there, and resolves one that is")
 def _(root):
-    mod = importlib.import_module("tools.derive_ci_rows")
+    mod = deriver()
     missing = os.path.join(root, "does-not-exist")
     try:
         mod.existing_directory(missing)
@@ -1325,7 +1352,7 @@ def _(root):
 
 @case("30 — a cache key stays under the cache directory, whatever the REST path looks like")
 def _(root):
-    mod = importlib.import_module("tools.derive_ci_rows")
+    mod = deriver()
     cache = os.path.join(root, "cache")
     os.makedirs(cache)
     fetcher = mod.Fetcher(cache)
@@ -1353,7 +1380,7 @@ def main() -> int:
             except AssertionError as exc:
                 failures += 1
                 print(f"::error title=derive_ci_rows_suite::{name}: {exc}")
-            except Exception as exc:                       # noqa: BLE001 - reported, not hidden
+            except Exception as exc:                       # every class is reported, none hidden
                 failures += 1
                 print(f"::error title=derive_ci_rows_suite::{name}: {type(exc).__name__}: {exc}")
     print(f"derive_ci_rows_suite: ran {len(CASES)} cases, {failures} failures")

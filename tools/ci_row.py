@@ -86,7 +86,12 @@ EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 # An expression naming a workflow variable, which is the one class of expression that can be
 # resolved from the workflow text alone: `env:` is written in the file, where `inputs` and `needs`
 # are the run's.
-ENV_EXPRESSION = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+#
+# ASCII, here and wherever a shorthand class reads a name or a number out of one of these files: a
+# variable's name, a here-document's delimiter and a version number are drawn from ASCII, and a
+# class that also admitted the letters and digits of another script would match a name no host
+# declares and a version no comparison could order.
+ENV_EXPRESSION = re.compile(r"\$\{\{\s*env\.([A-Za-z_]\w*)\s*\}\}", re.ASCII)
 # The action's `prompt:` where it names a step's output instead of carrying the text. A prompt is
 # hashed as rendered, so the job renders it once into a file and hands the action the same string
 # through a step output; the text then stands in that step's `run:` and no longer in the `with:`.
@@ -96,7 +101,7 @@ PROMPT_OUTPUT = re.compile(
 # A here-document's opening redirection, with its delimiter. The quoting is read rather than
 # ignored: an unquoted delimiter lets the shell expand the body, so the file written is not the
 # text standing in the workflow and no reading of the workflow is the prompt.
-HEREDOC = re.compile(r"<<(-?)(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+HEREDOC = re.compile(r"<<(-?)(['\"]?)([A-Za-z_]\w*)\2", re.ASCII)
 ARTIFACT_NAME = re.compile(r"^l2-execution-(\d+)$")
 NEEDS_RESULT = re.compile(
     r'"([^"]+)"\s*:\s*"\$\{\{\s*needs\.([A-Za-z0-9_.-]+)\.result\s*\}\}"')
@@ -133,8 +138,34 @@ USAGE_FIELDS = (
     ("cache_creation_input_tokens", "cache_write_tokens"),
 )
 
-# The fenced `json` block a runner's own text carries, as `publish_verdict.py` finds it.
-FENCE = re.compile(r"```json\s*\n(.*?)\n```", re.S)
+# The fenced `json` block a runner's own text carries, as `publish_verdict.py` finds it: an opener
+# standing at the end of its line, and a terminator opening one.
+FENCE_OPENER = "```json"
+FENCE_TERMINATOR = "\n```"
+# The whitespace a fence's opening line may carry after the opener — every space but the line
+# break that ends it, which is what makes the two disjoint.
+FENCE_LINE_SPACE = " \t\r\f\v"
+
+# A YAML list item's marker, with whatever indentation stands before it. A list item's column is
+# what bounds it: the next marker at that column or further left is the next item.
+LIST_MARKER = re.compile(r"^(\s*)-\s")
+# The openers of the two blocks this module reads by indentation, and the key of an entry inside
+# one: an `env:` mapping, the `with:` mapping a call hands a reusable workflow, and a plain key.
+ENV_BLOCK = re.compile(r"^(\s*)env:\s*$")
+WITH_BLOCK = re.compile(r"^\s*with:\s*$")
+ENTRY_KEY = re.compile(r"[A-Za-z0-9_.-]+")
+# A value that is not a value at all but the announcement of a block scalar, with its chomping
+# indicator: the lines it opens are where the string is.
+BLOCK_OPENER = re.compile(r"[|>][-+]?")
+
+# The pull request's declaration, read the way `pr_body_check.py` reads it: the line's own text,
+# settled in code, so that the class named on that line is the class this maps.
+SCOPE_LINE = re.compile(r"^Scope class:(.*)$", re.M)
+# The `.agents` manifest's `exeris-agents` entry and the pin standing inside it, and the name a
+# vendored tree carries when there is no manifest to state one.
+BUNDLE_ENTRY = re.compile(r"^\s*-\s*bundle:\s*exeris-agents\s*$")
+VERSION_PIN = re.compile(r"^\s*version:\s*\"?(\d+\.\d+\.\d+)\"?\s*$", re.M | re.ASCII)
+VENDOR_DIRECTORY = re.compile(r"exeris-agents-(\d+\.\d+\.\d+)", re.ASCII)
 
 
 class UnsupportedTemplate(Exception):
@@ -220,6 +251,103 @@ class StreamFacts:
     verdicts: list[dict]
 
 
+def event_message(event: dict) -> dict:
+    """One event's message, or an empty mapping where it carries none of this shape."""
+    message = event.get("message")
+    return message if isinstance(message, dict) else {}
+
+
+def content_blocks(content: object) -> list[dict]:
+    """The content blocks of a message that are mappings, and none where the content is not a list.
+
+    A block this cannot read is left out rather than guessed at: every count taken from the blocks
+    is a count of what the stream stated, and a block of another shape states nothing about tools,
+    text or turns.
+    """
+    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+
+
+def is_typed_prompt(content: object, blocks: list[dict]) -> bool:
+    """Whether a `user` event is a prompt a person submitted, and not a tool result fed back.
+
+    The stream spells a tool result as a `user` event too, so the test is the block kinds rather
+    than the event kind: text and no tool result is someone typing, which is what steering is. A
+    message whose content is not blocks at all is text, because that spelling carries nothing else.
+    """
+    if blocks:
+        kinds = {b.get("type") for b in blocks}
+    elif content:
+        kinds = {"text"}
+    else:
+        kinds = set()
+    return "text" in kinds and "tool_result" not in kinds
+
+
+def event_texts(event: dict, blocks: list[dict]) -> list[str]:
+    """What the runner itself said in one event: its text blocks, and a result's own text.
+
+    Both, because a run states its verdict twice — once in the turn that reaches it and again in
+    the `result` event that repeats it — and the publisher reads whichever it is handed.
+    """
+    said = [block["text"] for block in blocks
+            if block.get("type") == "text" and block.get("text")]
+    if event.get("type") == "result" and isinstance(event.get("result"), str):
+        said.append(event["result"])
+    return said
+
+
+@dataclasses.dataclass
+class StreamPass:
+    """What one pass over a stream's events has seen, before `StreamFacts` states it.
+
+    A pass and not a parser: the stream is a log of what happened in the order it happened, and
+    every field here is either the last announcement of its kind or a running count of events that
+    have already gone by.
+    """
+
+    model: str | None = None
+    harness_version: str | None = None
+    permission_mode: str | None = None
+    api_key_source: str | None = None
+    acted: list = dataclasses.field(default_factory=list)
+    tool_calls: int = 0
+    human_prompts: int = 0
+    permission_denied_events: int = 0
+    has_result: bool = False
+    result: dict = dataclasses.field(default_factory=dict)
+    texts: list = dataclasses.field(default_factory=list)
+
+    def read(self, event: dict) -> None:
+        """One event, added to what the pass has seen so far."""
+        kind, subtype = event.get("type"), event.get("subtype")
+        content = event_message(event).get("content")
+        blocks = content_blocks(content)
+        if kind == "system" and subtype == "init":
+            self.announced(event)
+        elif kind == "system" and subtype == "permission_denied":
+            self.permission_denied_events += 1
+        elif kind == "assistant":
+            self.took_a_turn(event_message(event).get("model"), blocks)
+        elif kind == "user" and is_typed_prompt(content, blocks):
+            self.human_prompts += 1
+        elif kind == "result":
+            self.has_result, self.result = True, event
+        self.texts += event_texts(event, blocks)
+
+    def announced(self, event: dict) -> None:
+        """What the client said of itself at startup: the model, and what it opened under."""
+        self.model = event.get("model") or None
+        self.harness_version = event.get("claude_code_version") or None
+        self.permission_mode = event.get("permissionMode") or None
+        self.api_key_source = event.get("apiKeySource")
+
+    def took_a_turn(self, spoke: object, blocks: list[dict]) -> None:
+        """Who took this turn, in the order turns were taken, and the tools the turn called."""
+        if spoke and spoke not in self.acted:
+            self.acted.append(spoke)
+        self.tool_calls += sum(1 for block in blocks if block.get("type") == "tool_use")
+
+
 def stream_facts(events: list) -> StreamFacts:
     """The facts a run record takes from a Claude Code event stream.
 
@@ -231,70 +359,32 @@ def stream_facts(events: list) -> StreamFacts:
 
     `total_cost_usd` and `modelUsage` are not read. See the module docstring.
     """
-    model = harness_version = permission_mode = api_key_source = None
-    acted: list[str] = []
-    tool_calls = 0
-    human_prompts = 0
-    permission_denied_events = 0
-    result: dict = {}
-    has_result = False
-    texts: list[str] = []
-
+    seen = StreamPass()
     for event in events:
-        if not isinstance(event, dict):
-            continue
-        kind, subtype = event.get("type"), event.get("subtype")
-        message = event.get("message") if isinstance(event.get("message"), dict) else {}
-        content = message.get("content")
-        blocks = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
-        if kind == "system" and subtype == "init":
-            model = event.get("model") or None
-            harness_version = event.get("claude_code_version") or None
-            permission_mode = event.get("permissionMode") or None
-            api_key_source = event.get("apiKeySource")
-        elif kind == "system" and subtype == "permission_denied":
-            permission_denied_events += 1
-        elif kind == "assistant":
-            spoke = message.get("model")
-            if spoke and spoke not in acted:
-                acted.append(spoke)
-            tool_calls += sum(1 for b in blocks if b.get("type") == "tool_use")
-        elif kind == "user":
-            # A prompt a person submitted, and not a tool result the client fed back. The stream
-            # spells a tool result as a `user` event too, so the test is the block kinds rather than
-            # the event kind: text and no tool result is someone typing, which is what steering is.
-            kinds = {b.get("type") for b in blocks} if blocks else {"text"} if content else set()
-            if "text" in kinds and "tool_result" not in kinds:
-                human_prompts += 1
-        elif kind == "result":
-            has_result = True
-            result = event
-        for block in blocks:
-            if block.get("type") == "text" and block.get("text"):
-                texts.append(block["text"])
-        if kind == "result" and isinstance(event.get("result"), str):
-            texts.append(event["result"])
+        if isinstance(event, dict):
+            seen.read(event)
 
+    result = seen.result
     denials = result.get("permission_denials")
     usage = result.get("usage") if isinstance(result.get("usage"), dict) else None
     return StreamFacts(
         event_count=len(events),
-        model=model,
-        acted_models=acted,
-        harness_version=harness_version,
-        permission_mode=permission_mode,
-        api_key_source=api_key_source,
-        has_result=has_result,
+        model=seen.model,
+        acted_models=seen.acted,
+        harness_version=seen.harness_version,
+        permission_mode=seen.permission_mode,
+        api_key_source=seen.api_key_source,
+        has_result=seen.has_result,
         result_subtype=result.get("subtype"),
         turns=result.get("num_turns") if isinstance(result.get("num_turns"), int) else None,
         wall_time_ms=result.get("duration_ms") if isinstance(result.get("duration_ms"), int)
         else None,
-        tool_calls=tool_calls,
+        tool_calls=seen.tool_calls,
         usage=usage_counts(usage),
         permission_denials=len(denials) if isinstance(denials, list) else None,
-        permission_denied_events=permission_denied_events,
-        human_prompts=human_prompts,
-        verdicts=fenced_verdicts(texts),
+        permission_denied_events=seen.permission_denied_events,
+        human_prompts=seen.human_prompts,
+        verdicts=fenced_verdicts(seen.texts),
     )
 
 
@@ -315,10 +405,40 @@ def usage_counts(usage: dict | None) -> dict | None:
     return out or None
 
 
+def fenced_blocks(text: str) -> list[str]:
+    """The body of every fenced `json` block in `text`, in the order they stand.
+
+    Scanned rather than matched by one pattern, because a pattern whose body and whose terminator
+    can both stand for the same characters costs time in the square of the text's length whenever a
+    block never closes — and this text is a runner's own output, as long as the run made it.
+
+    A block opens where the opener is followed by nothing but spaces to the end of its line, and it
+    closes at the first line beginning with three backticks. One that never closes carries no body,
+    and the scan goes on to the next opener after it.
+    """
+    found: list[str] = []
+    position = 0
+    while True:
+        opened = text.find(FENCE_OPENER, position)
+        if opened < 0:
+            return found
+        start = opened + len(FENCE_OPENER)
+        while start < len(text) and text[start] in FENCE_LINE_SPACE:
+            start += 1
+        position = start
+        if start >= len(text) or text[start] != "\n":
+            continue
+        closed = text.find(FENCE_TERMINATOR, start + 1)
+        if closed < 0:
+            continue
+        found.append(text[start + 1:closed])
+        position = closed + len(FENCE_TERMINATOR)
+
+
 def fenced_verdicts(texts: list[str]) -> list[dict]:
     """The fenced `json` verdicts in what the runner itself said, oldest first."""
     found = []
-    for block in FENCE.findall("\n".join(texts)):
+    for block in fenced_blocks("\n".join(texts)):
         try:
             doc = json.loads(block)
         except json.JSONDecodeError:
@@ -355,6 +475,32 @@ def accounting_mode(api_key_source: object) -> str | None:
 # --------------------------------------------------------------------------------------------
 
 
+def _block_lines(lines: list[str], index: int, column: int) -> list[str]:
+    """The lines of the block opened at `index`, as written.
+
+    A block's extent is its opener's column: every line after it that is more indented, up to the
+    first that is not. A blank line is inside the block whatever its own indentation, because a
+    blank line states nothing about where the block ends.
+    """
+    body: list[str] = []
+    for candidate in lines[index + 1:]:
+        if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= column:
+            break
+        body.append(candidate)
+    return body
+
+
+def _dedented(body: list[str]) -> list[str]:
+    """A block's lines with the block's own indentation taken off, blanks as empty lines.
+
+    The indentation removed is the least any content line carries, which is the block's: taking off
+    more would eat a continuation the author aligned, and taking off less would leave the block's
+    own layout inside the value.
+    """
+    indent = min(len(b) - len(b.lstrip()) for b in body if b.strip())
+    return [b[indent:] if b.strip() else "" for b in body]
+
+
 def _block_body(text: str, key: str, styles: str) -> tuple[list[str], str] | None:
     """`<key>:`'s block-scalar lines as written, with its chomping indicator, or None where none.
 
@@ -369,13 +515,7 @@ def _block_body(text: str, key: str, styles: str) -> tuple[list[str], str] | Non
         found = opener.match(line)
         if not found:
             continue
-        parent = len(found.group(1))
-        body: list[str] = []
-        for candidate in lines[index + 1:]:
-            if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= parent:
-                break
-            body.append(candidate)
-        return body, found.group(3)
+        return _block_lines(lines, index, len(found.group(1))), found.group(3)
     return None
 
 
@@ -399,8 +539,7 @@ def block_scalar(text: str, key: str) -> str | None:
         body.pop()
     if not body:
         return ""
-    indent = min(len(b) - len(b.lstrip()) for b in body if b.strip())
-    return "\n".join(b[indent:] if b.strip() else "" for b in body) + "\n"
+    return "\n".join(_dedented(body)) + "\n"
 
 
 def folded_scalar(text: str, key: str) -> str | None:
@@ -431,40 +570,70 @@ def folded_scalar(text: str, key: str) -> str | None:
         body.pop()
         trailing += 1
     if not body:
-        return "" if chomp == "-" else "\n" * (trailing if chomp == "+" else 0)
-    indent = min(len(b) - len(b.lstrip()) for b in body if b.strip())
-    lines = [b[indent:] if b.strip() else "" for b in body]
-
-    # Each content line with the number of blank lines standing before it, because folding is a
-    # rule about what separates two lines and not about either line on its own.
-    segments: list[tuple[int, str]] = []
-    blanks = 0
-    for line in lines:
-        if line == "":
-            blanks += 1
-            continue
-        segments.append((blanks, line))
-        blanks = 0
-
-    out: list[str] = []
-    for position, (before, line) in enumerate(segments):
-        if position == 0:
-            out.append("\n" * before)
-        else:
-            previous = segments[position - 1][1]
-            if previous.startswith((" ", "\t")) or line.startswith((" ", "\t")):
-                out.append("\n" * (before + 1))
-            elif before == 0:
-                out.append(" ")
-            else:
-                out.append("\n" * before)
-        out.append(line)
-    value = "".join(out)
+        return _empty_fold(chomp, trailing)
+    value = _fold(_segments(_dedented(body)))
     if chomp == "-":
         return value
     if chomp == "+":
         return value + "\n" + "\n" * trailing
     return value + "\n"
+
+
+def _empty_fold(chomp: str, trailing: int) -> str:
+    """A folded block of nothing but blank lines, under each chomping indicator.
+
+    `-` strips every trailing break and `+` keeps them all, so such a block is empty under the
+    first and those lines under the second. The default keeps exactly one break of a value's own,
+    and a value with no content line has none to keep.
+    """
+    if chomp == "+":
+        return "\n" * trailing
+    return ""
+
+
+def _segments(lines: list[str]) -> list[tuple[int, str]]:
+    """Each content line with the number of blank lines standing before it.
+
+    Folding is a rule about what separates two lines and not about either line on its own, so the
+    separation is what the reading is carried out over.
+    """
+    out: list[tuple[int, str]] = []
+    blanks = 0
+    for line in lines:
+        if line == "":
+            blanks += 1
+            continue
+        out.append((blanks, line))
+        blanks = 0
+    return out
+
+
+def _break(previous: str | None, before: int, line: str) -> str:
+    """What YAML's folding puts between the line before and this one.
+
+    Nothing stands before the first line but the blank lines that opened the block. After that:
+    a break survives beside a MORE-indented line, one space replaces the break between two lines at
+    the block's own indentation, and a run of blank lines loses the one break folding would have
+    eaten and keeps the rest.
+    """
+    if previous is None:
+        return "\n" * before
+    if previous.startswith((" ", "\t")) or line.startswith((" ", "\t")):
+        return "\n" * (before + 1)
+    if before == 0:
+        return " "
+    return "\n" * before
+
+
+def _fold(segments: list[tuple[int, str]]) -> str:
+    """The segments of a folded block, joined by what folding puts between them."""
+    out: list[str] = []
+    previous = None
+    for before, line in segments:
+        out.append(_break(previous, before, line))
+        out.append(line)
+        previous = line
+    return "".join(out)
 
 
 def plain_scalar(value: str) -> str | None:
@@ -496,19 +665,29 @@ def workflow_env(text: str, name: str) -> str | None:
     entry = re.compile(rf"^(\s*){re.escape(name)}:\s*(.*)$")
     lines = text.splitlines()
     for index, line in enumerate(lines):
-        opener = re.match(r"^(\s*)env:\s*$", line)
+        opener = ENV_BLOCK.match(line)
         if not opener:
             continue
         parent = len(opener.group(1))
-        for candidate in lines[index + 1:]:
-            if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= parent:
-                break
-            hit = entry.match(candidate)
-            if hit and len(hit.group(1)) > parent:
-                value = plain_scalar(hit.group(2))
-                if value is not None:
-                    found.add(value)
+        found |= _named_values(_block_lines(lines, index, parent), entry, parent)
     return found.pop() if len(found) == 1 else None
+
+
+def _named_values(body: list[str], entry: re.Pattern, column: int) -> set[str]:
+    """Every plain value the entries of one block give the name `entry` matches.
+
+    A set, because the question this answers is how many DIFFERENT values a file gives one name:
+    one name written twice with one value is one value, and two values are why no value is
+    established.
+    """
+    found: set[str] = set()
+    for candidate in body:
+        hit = entry.match(candidate)
+        if hit and len(hit.group(1)) > column:
+            value = plain_scalar(hit.group(2))
+            if value is not None:
+                found.add(value)
+    return found
 
 
 def step_block(text: str, step_id: str) -> str | None:
@@ -520,27 +699,30 @@ def step_block(text: str, step_id: str) -> str | None:
     id the expression that spends its output names.
     """
     lines = text.splitlines()
-    marker = re.compile(r"^(\s*)-\s")
     wanted = re.compile(rf"^(\s*)id:\s*['\"]?{re.escape(step_id)}['\"]?\s*$")
     for index, line in enumerate(lines):
         found = wanted.match(line)
         if not found:
             continue
-        start = None
-        for back in range(index, -1, -1):
-            opener = marker.match(lines[back])
-            if opener and len(opener.group(1)) < len(found.group(1)):
-                start = back
-                break
+        start = _item_start(lines, index, len(found.group(1)))
         if start is None:
             continue
-        column = len(marker.match(lines[start]).group(1))
-        body = [lines[start]]
-        for candidate in lines[start + 1:]:
-            if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= column:
-                break
-            body.append(candidate)
-        return "\n".join(body)
+        column = len(LIST_MARKER.match(lines[start]).group(1))
+        return "\n".join([lines[start]] + _block_lines(lines, start, column))
+    return None
+
+
+def _item_start(lines: list[str], index: int, column: int) -> int | None:
+    """Where the list item holding the line at `index` opens, or None where no item holds it.
+
+    The nearest marker above it that stands further left: a marker at the line's own column or
+    further right opens an item of some list inside this one, and an item of an inner list is not
+    the item the line belongs to.
+    """
+    for back in range(index, -1, -1):
+        opener = LIST_MARKER.match(lines[back])
+        if opener and len(opener.group(1)) < column:
+            return back
     return None
 
 
@@ -671,6 +853,27 @@ def allow_list_tokens(claude_args: str | None, workflow: str | None = None) -> l
     """
     if claude_args is None:
         return None
+    value = _allowed_tools_value(claude_args)
+    if value is None:
+        return None
+    if workflow is not None:
+        value = _resolved_against(value, workflow)
+    allow = [part.strip() for part in _split_outside_brackets(value) if part.strip()]
+    unrendered = [part for part in allow if "${{" in part]
+    if unrendered:
+        raise UnsupportedTemplate(f"the allow-list carries the unrendered expression "
+                                  f"`{unrendered[0]}`, so the tools the run was permitted are not "
+                                  f"established")
+    return allow
+
+
+def _allowed_tools_value(claude_args: str) -> str | None:
+    """What a launch line gives `--allowedTools`, in either spelling, or None where it gives none.
+
+    The LAST one wins, which is the client's own rule: a line that names the flag twice was launched
+    under the second, and a reading that took the first would record a surface the run did not have.
+    A line that is not a shell line at all establishes nothing, so it names no tools either.
+    """
     try:
         tokens = shlex.split(claude_args)
     except ValueError:
@@ -681,13 +884,29 @@ def allow_list_tokens(claude_args: str | None, workflow: str | None = None) -> l
             value = tokens[index + 1]
         elif token.startswith("--allowedTools="):
             value = token[len("--allowedTools="):]
-    if value is None:
-        return None
-    if workflow is not None:
-        def resolve(match: re.Match) -> str:
-            named = workflow_env(workflow, match.group(1))
-            return match.group(0) if named is None else named
-        value = ENV_EXPRESSION.sub(resolve, value)
+    return value
+
+
+def _resolved_against(value: str, workflow: str) -> str:
+    """`value` with every `${{ env.NAME }}` the workflow establishes replaced by what it says.
+
+    An expression the file does not settle is left standing rather than dropped: what a caller does
+    with an unresolved expression is the caller's, and a value quietly emptied of one would read as
+    a value the file gave.
+    """
+    def resolve(match: re.Match) -> str:
+        named = workflow_env(workflow, match.group(1))
+        return match.group(0) if named is None else named
+    return ENV_EXPRESSION.sub(resolve, value)
+
+
+def _split_outside_brackets(value: str) -> list[str]:
+    """`value` split at the commas standing at bracket depth zero.
+
+    A token may carry a comma inside its own parentheses and a naive split would report one
+    permission as two — `Bash(git log --format=a,b:*)` is one rule, and two halves of it are two
+    rules the run never had.
+    """
     out, depth, current = [], 0, ""
     for character in value:
         if character in "([":
@@ -700,13 +919,7 @@ def allow_list_tokens(claude_args: str | None, workflow: str | None = None) -> l
         else:
             current += character
     out.append(current)
-    allow = [part.strip() for part in out if part.strip()]
-    unrendered = [part for part in allow if "${{" in part]
-    if unrendered:
-        raise UnsupportedTemplate(f"the allow-list carries the unrendered expression "
-                                  f"`{unrendered[0]}`, so the tools the run was permitted are not "
-                                  f"established")
-    return allow
+    return out
 
 
 # The tools that read and nothing else, and the shell commands that do. Neither list is a
@@ -734,23 +947,25 @@ def writes_nothing(allow: list[str] | None) -> bool | None:
     """
     if allow is None:
         return None
-    for token in allow:
-        name, bracket, argument = token.partition("(")
-        name = name.strip()
-        if not bracket:
-            if name not in READ_ONLY_TOOLS:
-                return False
-            continue
-        command = argument.rstrip().rstrip(")").strip()
-        if name != "Bash":
-            if name not in READ_ONLY_TOOLS:
-                return False
-            continue
-        if command.endswith(":*"):
-            command = command[:-2].strip()
-        if command not in READ_ONLY_BASH:
-            return False
-    return True
+    return not any(_token_writes(token) for token in allow)
+
+
+def _token_writes(token: str) -> bool:
+    """Whether one allow-list token names a power that could write to the checkout.
+
+    A token outside the read-only table writes, because a name neither list carries is a tool this
+    reading cannot vouch for and the cost of vouching wrongly is a measurement nobody made standing
+    on a row. `Bash` is the one name whose argument is read, because it is the one whose argument
+    is a command.
+    """
+    name, bracket, argument = token.partition("(")
+    name = name.strip()
+    if not bracket or name != "Bash":
+        return name not in READ_ONLY_TOOLS
+    command = argument.rstrip().rstrip(")").strip()
+    if command.endswith(":*"):
+        command = command[:-2].strip()
+    return command not in READ_ONLY_BASH
 
 
 def tool_surface(allow: list[str] | None, perms: dict | None) -> str:
@@ -835,7 +1050,7 @@ def l1_mapping(l1_results: str | None) -> dict:
     """
     if not l1_results:
         return {}
-    return {check: job for check, job in NEEDS_RESULT.findall(l1_results)}
+    return dict(NEEDS_RESULT.findall(l1_results))
 
 
 def caller_inputs(caller_yaml: str, workflow: str = "docs-review.yml") -> dict | None:
@@ -865,51 +1080,89 @@ def caller_inputs(caller_yaml: str, workflow: str = "docs-review.yml") -> dict |
         if not found:
             continue
         calls = True
-        depth = len(found.group(1))
-        start = None
-        for offset in range(index + 1, len(lines)):
-            candidate = lines[offset]
-            if not candidate.strip() or candidate.lstrip().startswith("#"):
-                continue
-            indent = len(candidate) - len(candidate.lstrip())
-            if indent < depth:
-                break
-            if indent == depth and re.match(r"^\s*with:\s*$", candidate):
-                start = offset + 1
-                break
-            if indent < depth:
-                break
+        start = _with_block(lines, index, len(found.group(1)))
         if start is None:
             continue
-        out: dict = {}
-        body = lines[start:]
-        entry_indent = None
-        for offset, candidate in enumerate(body):
-            if not candidate.strip() or candidate.lstrip().startswith("#"):
-                continue
-            indent = len(candidate) - len(candidate.lstrip())
-            if entry_indent is None:
-                entry_indent = indent
-            if indent < entry_indent:
-                break
-            if indent > entry_indent:
-                continue
-            pair = re.match(r"^\s*([A-Za-z0-9_.-]+):\s*(.*?)\s*$", candidate)
-            if not pair:
-                continue
-            key, value = pair.group(1), pair.group(2)
-            if re.fullmatch(r"[|>][-+]?", value):
-                # A block's value is its style's: a `|` block is its lines, a `>` block is those
-                # lines folded. An input read under the wrong one is a different string from the
-                # one the called workflow received, and this mapping is where the prompt's inputs
-                # come from.
-                held = "\n".join(body[offset:])
-                out[key] = (folded_scalar(held, key) if value.startswith(">")
-                            else block_scalar(held, key)) or ""
-            else:
-                out[key] = value.strip("\"'")
-        return out
+        return _mapping_at(lines[start:])
     return {} if calls else None
+
+
+def _skipped_line(line: str) -> bool:
+    """Whether a line is one this reading goes past: blank, or a comment standing on its own.
+
+    Neither states anything about indentation, so neither ends a block or opens an entry.
+    """
+    return not line.strip() or line.lstrip().startswith("#")
+
+
+def _with_block(lines: list[str], index: int, column: int) -> int | None:
+    """Where the `with:` of the call opened at `index` begins, or None where the call carries none.
+
+    The call's own column decides which `with:` is the call's: one standing at that column belongs
+    to it, one further left belongs to something the call is inside, and a line further left than
+    the call has left the call altogether.
+    """
+    for offset in range(index + 1, len(lines)):
+        candidate = lines[offset]
+        if _skipped_line(candidate):
+            continue
+        indent = len(candidate) - len(candidate.lstrip())
+        if indent < column:
+            return None
+        if indent == column and WITH_BLOCK.match(candidate):
+            return offset + 1
+    return None
+
+
+def _mapping_at(body: list[str]) -> dict:
+    """The one-level mapping standing at the head of `body`, values as their raw text.
+
+    The first entry's column is the mapping's: a line further left has left it, and a line further
+    in belongs to the entry above rather than being an entry of its own.
+    """
+    out: dict = {}
+    entry_indent = None
+    for offset, candidate in enumerate(body):
+        if _skipped_line(candidate):
+            continue
+        indent = len(candidate) - len(candidate.lstrip())
+        if entry_indent is None:
+            entry_indent = indent
+        if indent < entry_indent:
+            break
+        if indent > entry_indent:
+            continue
+        pair = _key_value(candidate)
+        if pair is None:
+            continue
+        out[pair[0]] = _entry_value(body, offset, *pair)
+    return out
+
+
+def _key_value(line: str) -> tuple[str, str] | None:
+    """One `key: value` entry as the two of them, or None where the line is not an entry.
+
+    The key runs to the first colon and the value is the rest, stripped: a colon inside a value is
+    the value's, and a line whose key is not a name is not an entry of a mapping at all.
+    """
+    key, colon, value = line.strip().partition(":")
+    if not colon or not ENTRY_KEY.fullmatch(key):
+        return None
+    return key, value.strip()
+
+
+def _entry_value(body: list[str], offset: int, key: str, value: str) -> str:
+    """One entry's value: the text beside the key, or the block scalar the key opens.
+
+    A block's value is its style's: a `|` block is its lines, a `>` block is those lines folded. An
+    input read under the wrong one is a different string from the one the called workflow received,
+    and this mapping is where the prompt's inputs come from.
+    """
+    if not BLOCK_OPENER.fullmatch(value):
+        return value.strip("\"'")
+    held = "\n".join(body[offset:])
+    read = folded_scalar(held, key) if value.startswith(">") else block_scalar(held, key)
+    return read or ""
 
 
 def l1_results_input(caller_yaml: str, conclusions: dict,
@@ -1018,7 +1271,7 @@ def scope_from_body(body: str | None) -> str | None:
     if not body:
         return None
     text = re.sub(r"<!--.*?-->", "", body, flags=re.S)
-    found = re.search(r"^Scope class:\s*(.+?)\s*$", text, re.M)
+    found = SCOPE_LINE.search(text)
     if not found:
         return None
     value = found.group(1).strip()
@@ -1037,18 +1290,34 @@ def bundle_version(manifest: str | None, vendor_dir: list[str] | None) -> str | 
     bundle carries the rules the run was subject to, so a row without it does not say what the run
     was subject to.
     """
-    if manifest:
-        block = re.search(r"^\s*-\s*bundle:\s*exeris-agents\s*$(.*?)(?=^\s*-\s|\Z)",
-                          manifest, re.M | re.S)
-        if block:
-            pin = re.search(r"^\s*version:\s*\"?([0-9]+\.[0-9]+\.[0-9]+)\"?\s*$",
-                            block.group(1), re.M)
-            if pin:
-                return pin.group(1)
+    entry = _bundle_entry(manifest or "")
+    if entry is not None:
+        pin = VERSION_PIN.search(entry)
+        if pin:
+            return pin.group(1)
     for name in sorted(vendor_dir or []):
-        found = re.fullmatch(r"exeris-agents-([0-9]+\.[0-9]+\.[0-9]+)", name)
+        found = VENDOR_DIRECTORY.fullmatch(name)
         if found:
             return found.group(1)
+    return None
+
+
+def _bundle_entry(manifest: str) -> str | None:
+    """The lines of the manifest entry naming the `exeris-agents` bundle, or None where none does.
+
+    An entry's extent is the next entry: a bundle list is a list, so what stands between one marker
+    and the next belongs to the first, and a pin under a later entry pins a different bundle.
+    """
+    lines = manifest.splitlines()
+    for index, line in enumerate(lines):
+        if not BUNDLE_ENTRY.match(line):
+            continue
+        body: list[str] = []
+        for candidate in lines[index + 1:]:
+            if LIST_MARKER.match(candidate):
+                break
+            body.append(candidate)
+        return "\n".join(body)
     return None
 
 
@@ -1187,21 +1456,35 @@ def fence_id(date: str, producer: str, client_version: str | None) -> str:
 # --------------------------------------------------------------------------------------------
 
 
-def assemble(*, run_id: str, started_at: str, fingerprint: str, domain: str, scope: str,
-             provider: str, model_id: str, harness_client: str, harness_version: str,
-             system_prompt_sha256: str, repository: str, visibility: str, commit: str,
-             bundle_version: str, turns: int, tool_calls: int, wall_time_ms: int,
-             event_stream_ref: str, event_stream_sha256: str, event_count: int,
-             accounting_mode: str, oracle: dict, outcome: str, capture_version: str, fence: str,
-             tool_surface: str | None = None, verdict_route: str | None = None,
-             permission_denials: int | None = None, capture_level: str | None = None,
-             human_prompts: int | None = None, result_commits: list | None = None,
-             usage: dict | None = None) -> dict:
+# Every field a row must be given, and every field it may be given. The two are lists rather than
+# parameters so that one call shape — `assemble(**fields)` — serves each producer, and they are
+# explicit rather than inferred from the contract so that a field this producer stopped deriving is
+# refused by name here instead of arriving at the inbox as a key that is not there.
+ASSEMBLE_FIELDS = (
+    "run_id", "started_at", "fingerprint", "domain", "scope", "provider", "model_id",
+    "harness_client", "harness_version", "system_prompt_sha256", "repository", "visibility",
+    "commit", "bundle_version", "turns", "tool_calls", "wall_time_ms", "event_stream_ref",
+    "event_stream_sha256", "event_count", "accounting_mode", "oracle", "outcome",
+    "capture_version", "fence",
+)
+OPTIONAL_FIELDS = (
+    "tool_surface", "verdict_route", "permission_denials", "capture_level", "human_prompts",
+    "result_commits", "usage",
+)
+
+
+def assemble(**fields) -> dict:
     """One run record, from values already derived, refused if it names a publisher as the agent.
 
-    Keyword-only and flat: every required field of the contract is a parameter a caller must name,
-    so a field this producer stopped deriving becomes a `TypeError` here rather than a row missing a
-    key the inbox discovers later.
+    Taken by name and flat. `ASSEMBLE_FIELDS` is what a caller must give: `run_id`, `started_at`,
+    `fingerprint`, `domain`, `scope`, `provider`, `model_id`, `harness_client`, `harness_version`,
+    `system_prompt_sha256`, `repository`, `visibility`, `commit`, `bundle_version`, `turns`,
+    `tool_calls`, `wall_time_ms`, `event_stream_ref`, `event_stream_sha256`, `event_count`,
+    `accounting_mode`, `oracle`, `outcome`, `capture_version` and `fence`. `OPTIONAL_FIELDS` is
+    what it may give beside them: `tool_surface`, `verdict_route`, `permission_denials`,
+    `capture_level`, `human_prompts`, `result_commits` and `usage`. A name outside the two, or a
+    required one left out, raises `TypeError` naming it — so a field this producer stopped
+    deriving is refused here rather than missing from a row the inbox discovers later.
 
     `agent.model_snapshot` is derived rather than passed, as `unresolved:` over this row's own
     `model_id`. No execution log of this runner exposes a dated snapshot for the model that takes
@@ -1210,48 +1493,56 @@ def assemble(*, run_id: str, started_at: str, fingerprint: str, domain: str, sco
 
     Optional fields are written only where the caller established them — the default is absence,
     which is how this record distinguishes a value nobody measured from a value that was zero.
-    There is no cost parameter: under a subscription no per-run price exists, and a figure computed
+    There is no cost field: under a subscription no per-run price exists, and a figure computed
     from a price list is imputed rather than reported.
     """
+    unknown = [name for name in fields if name not in ASSEMBLE_FIELDS + OPTIONAL_FIELDS]
+    if unknown:
+        raise TypeError(f"`assemble` has no field `{unknown[0]}` to put a value in")
+    missing = [name for name in ASSEMBLE_FIELDS if name not in fields]
+    if missing:
+        raise TypeError(f"`assemble` was given no `{missing[0]}`, which every row states")
+    model_id = fields["model_id"]
     row = {
-        "run_id": run_id,
-        "started_at": started_at,
-        "workload": {"fingerprint": fingerprint, "domain": domain, "scope": scope},
+        "run_id": fields["run_id"],
+        "started_at": fields["started_at"],
+        "workload": {"fingerprint": fields["fingerprint"], "domain": fields["domain"],
+                     "scope": fields["scope"]},
         "agent": {
-            "provider": provider,
+            "provider": fields["provider"],
             "model_id": model_id,
             "model_snapshot": f"unresolved:{model_id}",
-            "harness": {"client": harness_client, "version": harness_version},
-            "system_prompt_sha256": system_prompt_sha256,
+            "harness": {"client": fields["harness_client"],
+                        "version": fields["harness_version"]},
+            "system_prompt_sha256": fields["system_prompt_sha256"],
         },
         "repository_state": {
-            "repository": repository,
-            "visibility": visibility,
-            "commit": commit,
-            "bundle_version": bundle_version,
+            "repository": fields["repository"],
+            "visibility": fields["visibility"],
+            "commit": fields["commit"],
+            "bundle_version": fields["bundle_version"],
             "dirty": False,
         },
         "execution": {
-            "turns": turns,
-            "tool_calls": tool_calls,
-            "wall_time_ms": wall_time_ms,
-            "event_stream": {"ref": event_stream_ref, "sha256": event_stream_sha256,
-                             "event_count": event_count},
+            "turns": fields["turns"],
+            "tool_calls": fields["tool_calls"],
+            "wall_time_ms": fields["wall_time_ms"],
+            "event_stream": {"ref": fields["event_stream_ref"],
+                             "sha256": fields["event_stream_sha256"],
+                             "event_count": fields["event_count"]},
         },
-        "accounting": {"mode": accounting_mode},
-        "oracle": oracle,
-        "outcome": outcome,
-        "instrument": {"capture_version": capture_version, "fence": fence},
+        "accounting": {"mode": fields["accounting_mode"]},
+        "oracle": fields["oracle"],
+        "outcome": fields["outcome"],
+        "instrument": {"capture_version": fields["capture_version"], "fence": fields["fence"]},
     }
     execution = row["execution"]
-    for key, value in (("tool_surface", tool_surface), ("verdict_route", verdict_route),
-                       ("permission_denials", permission_denials),
-                       ("capture_level", capture_level), ("human_prompts", human_prompts),
-                       ("result_commits", result_commits)):
-        if value is not None:
-            execution[key] = value
-    if usage:
-        row["accounting"]["usage"] = usage
+    for key in ("tool_surface", "verdict_route", "permission_denials", "capture_level",
+                "human_prompts", "result_commits"):
+        if fields.get(key) is not None:
+            execution[key] = fields[key]
+    if fields.get("usage"):
+        row["accounting"]["usage"] = fields["usage"]
     refuse_publisher(row)
     return row
 
