@@ -62,6 +62,9 @@ SUITE = "docs-mutation-v1"
 # holds.
 RECORD_TYPES = frozenset({"adr", "adr-link", "rfc", "research"})
 LINK = re.compile(r"\]\(([^)]+)\)")
+# Where the agent layer lives under a checkout, named once because a mutant that misspells it
+# would break nothing rather than the thing it names.
+AGENTS_DIR = ".agents"
 
 
 class MutationError(Exception):
@@ -159,6 +162,23 @@ def _no_registry_row(root: str) -> str:
     return f"{records}/{target} has no row in adr-index.md"
 
 
+def _rewritable_link(root: str, line: str) -> tuple[str, str] | None:
+    """The first local, on-disk link target in `line`, paired with what would make it broken.
+
+    Only a target this corpus can still resolve is worth mutating: an already-missing link would
+    tell the gate nothing about whether it enforces resolution.
+    """
+    for target in LINK.findall(line):
+        if target.startswith("http"):
+            continue
+        local = os.path.join(root, target.split("#")[0])
+        if os.path.exists(local):
+            broken = target[:-3] + "-not-on-disk.md" if target.endswith(".md") \
+                else target + "-not-on-disk"
+            return target, broken
+    return None
+
+
 def _unresolvable_link(root: str) -> str:
     path = _index_path(root)
     text = _read(path)
@@ -169,16 +189,13 @@ def _unresolvable_link(root: str) -> str:
         # about, which is an accepted one.
         if "accepted" not in line.lower() or "pending merge" in line.lower():
             continue
-        for target in LINK.findall(line):
-            if target.startswith("http"):
-                continue
-            local = os.path.join(root, target.split("#")[0])
-            if os.path.exists(local):
-                broken = target[:-3] + "-not-on-disk.md" if target.endswith(".md") \
-                    else target + "-not-on-disk"
-                lines[i] = lines[i].replace(f"]({target})", f"]({broken})")
-                _write(path, "".join(lines))
-                return f"a registry row links to {broken}, which is not on disk"
+        rewrite = _rewritable_link(root, line)
+        if rewrite is None:
+            continue
+        target, broken = rewrite
+        lines[i] = lines[i].replace(f"]({target})", f"]({broken})")
+        _write(path, "".join(lines))
+        return f"a registry row links to {broken}, which is not on disk"
     raise MutationError("no accepted registry row links to a file in this corpus")
 
 
@@ -195,7 +212,7 @@ def _hand_edited_adapter(root: str) -> str:
 
 
 def _hand_edited_vendored_policy(root: str) -> str:
-    vendor = os.path.join(root, ".agents", "vendor")
+    vendor = os.path.join(root, AGENTS_DIR, "vendor")
     for dirpath, dirnames, filenames in os.walk(vendor):
         dirnames[:] = sorted(dirnames)
         if os.path.basename(dirpath) != "policies":
@@ -234,7 +251,7 @@ def _missing_last_verified(root: str) -> str:
 
 
 def _missing_output_schema(root: str) -> str:
-    profiles = os.path.join(root, ".agents", "agents")
+    profiles = os.path.join(root, AGENTS_DIR, "agents")
     for name in sorted(os.listdir(profiles)) if os.path.isdir(profiles) else []:
         path = os.path.join(profiles, name, "AGENT.md")
         if not os.path.isfile(path):
@@ -243,7 +260,7 @@ def _missing_output_schema(root: str) -> str:
         for line in _frontmatter(text):
             if line.startswith("output:"):
                 absent = "schemas/a-schema-that-is-not-on-disk.schema.json"
-                if os.path.exists(os.path.join(root, ".agents", absent)):
+                if os.path.exists(os.path.join(root, AGENTS_DIR, absent)):
                     raise MutationError("the absent schema this mutant names is on disk")
                 _write(path, text.replace(f"\n{line}\n", f"\noutput: {absent}\n", 1))
                 return f"the {name} profile declares an output schema that is not on disk"

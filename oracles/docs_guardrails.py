@@ -179,27 +179,16 @@ def default_agents_tools() -> str:
         _sibling("exeris-agents", "EXERIS_AGENTS"), "tools")
 
 
-def bundle_version(checkout: str, bundle: str = BUNDLE) -> str:
-    """The agent-bundle version the checkout pins — this oracle's version.
-
-    The gates are the bundle's rules: its policies, its schemas and the agent-layer checks it
-    ships. So the version in force is the version of the oracle, and it is read here from the tree
-    the gates ran over. That is a different reading from the row's
-    `repository_state.bundle_version`, which is taken at the commit the run started from: the two
-    agree except in a run that edited the manifest, where one says what the work was subject to and
-    the other what judged it. A checkout that pins nothing is `unpinned`.
+def _manifest_import_items(text: str):
+    """The manifest's `imports:` list, one line's worth of update at a time.
 
     Block style only and scoped to `imports:`, which is how the manifest is written: a `version:`
     under any other key belongs to that key, and the manifest's own schema version is one of them.
+    A line outside that block, a comment or a blank line changes nothing; a line opening a new list
+    entry starts a fresh item before its own key is read. What this yields after each line is the
+    item as it stands at that point in the file, so a caller sees a match exactly where the line
+    that completes it appears, not only once an entry has been read in full.
     """
-    manifest = listed_path(checkout, ".agents", "manifest.yaml")
-    if manifest is None:
-        return UNPINNED
-    try:
-        with open(manifest, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError:
-        return UNPINNED
     inside = False
     item: dict[str, str] = {}
     for line in text.splitlines():
@@ -218,8 +207,39 @@ def bundle_version(checkout: str, bundle: str = BUNDLE) -> str:
         key, sep, value = entry.partition(":")
         if sep and key.strip() in ("bundle", "version") and value.split():
             item[key.strip()] = value.split()[0].strip("'\"")
-        if item.get("bundle") == bundle and item.get("version"):
-            return item["version"]
+        yield item
+
+
+def _pinned_version(item: dict[str, str], bundle: str) -> str | None:
+    """The version `item` pins for `bundle`, or None where the pair is not yet complete."""
+    if item.get("bundle") == bundle and item.get("version"):
+        return item["version"]
+    return None
+
+
+def bundle_version(checkout: str, bundle: str = BUNDLE) -> str:
+    """The agent-bundle version the checkout pins — this oracle's version.
+
+    The gates are the bundle's rules: its policies, its schemas and the agent-layer checks it
+    ships. So the version in force is the version of the oracle, and it is read here from the tree
+    the gates ran over. That is a different reading from the row's
+    `repository_state.bundle_version`, which is taken at the commit the run started from: the two
+    agree except in a run that edited the manifest, where one says what the work was subject to and
+    the other what judged it. A checkout that pins nothing is `unpinned`, and the first `imports:`
+    entry that names both a `bundle` and a `version` wins.
+    """
+    manifest = listed_path(checkout, ".agents", "manifest.yaml")
+    if manifest is None:
+        return UNPINNED
+    try:
+        with open(manifest, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return UNPINNED
+    for item in _manifest_import_items(text):
+        version = _pinned_version(item, bundle)
+        if version:
+            return version
     return UNPINNED
 
 
@@ -307,6 +327,49 @@ def _patterns(specs: list[str]) -> list[re.Pattern]:
     return [re.compile(globlib.translate(s, recursive=True, include_hidden=True)) for s in specs]
 
 
+def _taxonomy_patterns(stdout: str) -> tuple[list[re.Pattern], list[re.Pattern]]:
+    """The keep and drop patterns `lint_globs.py` printed, one per line, `!` marking a drop."""
+    keep_specs, drop_specs = [], []
+    for line in stdout.splitlines():
+        spec = line.strip()
+        if not spec:
+            continue
+        (drop_specs if spec.startswith("!") else keep_specs).append(spec.lstrip("!"))
+    return _patterns(keep_specs), _patterns(drop_specs)
+
+
+def _prune_excluded(prefix: str, dirnames: list[str], drop: list[re.Pattern]) -> list[str]:
+    """`dirnames`, sorted, with any directory the drop patterns exclude taken out.
+
+    An excluded directory is pruned rather than walked. The probe is a name that cannot exist, so
+    what it tests is the directory's own exclusion and not a real path.
+    """
+    return sorted(d for d in dirnames
+                 if not any(rx.match(f"{prefix}{d}/.probe.md") for rx in drop))
+
+
+def _admitted_files(prefix: str, filenames: list[str], keep: list[re.Pattern],
+                    drop: list[re.Pattern]) -> list[str]:
+    """The files in one directory the taxonomy admits, as paths relative to the checkout root."""
+    found = []
+    for name in sorted(filenames):
+        path = f"{prefix}{name}"
+        if any(rx.match(path) for rx in keep) and not any(rx.match(path) for rx in drop):
+            found.append(path)
+    return found
+
+
+def _walk(checkout: str, keep: list[re.Pattern], drop: list[re.Pattern]) -> list[str]:
+    """Every file under `checkout` the taxonomy admits, one directory at a time."""
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(checkout):
+        rel = os.path.relpath(dirpath, checkout).replace(os.sep, "/")
+        prefix = "" if rel == "." else rel + "/"
+        dirnames[:] = _prune_excluded(prefix, dirnames, drop)
+        found.extend(_admitted_files(prefix, filenames, keep, drop))
+    return found
+
+
 def corpus(checkout: str, guardrails: str, exclude: str = "") -> tuple[list[str], str]:
     """The documentation files this checkout holds, as the shared taxonomy admits them.
 
@@ -326,24 +389,8 @@ def corpus(checkout: str, guardrails: str, exclude: str = "") -> tuple[list[str]
     proc = _run([sys.executable, script, "--root", ".", "--exclude", exclude], cwd=checkout)
     if proc.returncode != 0:
         return [], f"the taxonomy did not resolve (exit {proc.returncode}): {_detail(proc)}"
-    keep_specs, drop_specs = [], []
-    for line in proc.stdout.splitlines():
-        spec = line.strip()
-        if spec:
-            (drop_specs if spec.startswith("!") else keep_specs).append(spec.lstrip("!"))
-    keep, drop = _patterns(keep_specs), _patterns(drop_specs)
-    found: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(checkout):
-        rel = os.path.relpath(dirpath, checkout).replace(os.sep, "/")
-        prefix = "" if rel == "." else rel + "/"
-        # An excluded directory is pruned rather than walked. The probe is a name that cannot
-        # exist, so what it tests is the directory's own exclusion and not a real path.
-        dirnames[:] = sorted(d for d in dirnames
-                             if not any(rx.match(f"{prefix}{d}/.probe.md") for rx in drop))
-        for name in sorted(filenames):
-            path = f"{prefix}{name}"
-            if any(rx.match(path) for rx in keep) and not any(rx.match(path) for rx in drop):
-                found.append(path)
+    keep, drop = _taxonomy_patterns(proc.stdout)
+    found = _walk(checkout, keep, drop)
     if not found:
         return [], EMPTY_CORPUS
     return found, ""
