@@ -375,8 +375,9 @@ def _registry_gate(checkout: str, guardrails: str, index: str | None) -> Gate:
         return Gate("registry_check", NOT_RUN, f"the checker is not on disk ({shown})",
                     available=False)
     if os.path.isfile(os.path.join(checkout, "adr-index.md")):
-        argv = [sys.executable, script, "--siblings-root",
-                os.path.dirname(os.path.abspath(checkout))]
+        # The checker runs in the checkout, so its siblings are one level up from where it runs:
+        # a constant, and no value this process was handed reaches the command line.
+        argv = [sys.executable, script, "--siblings-root", os.pardir]
         return _verdict("registry_check", _run(argv, checkout))
     adr_dir = next((d for d in ("docs/adr", "adr")
                     if os.path.isdir(os.path.join(checkout, d))), None)
@@ -388,7 +389,7 @@ def _registry_gate(checkout: str, guardrails: str, index: str | None) -> Gate:
                     "no central index on disk: the check would have to fetch one over the network",
                     available=False)
     return _verdict("registry_check", _run(
-        [sys.executable, script, "--adr-dir", adr_dir, "--index", os.path.abspath(index)], checkout))
+        [sys.executable, script, "--adr-dir", adr_dir, "--index", index], checkout))
 
 
 def _agent_gates(checkout: str, agents_tools: str) -> list[Gate]:
@@ -426,6 +427,26 @@ def _all_not_run(reason: str, *, available: bool = True) -> list[Gate]:
     return [Gate(name, NOT_RUN, reason, available=available) for name in GATES]
 
 
+def index_within(index: str | None, checkout: str, guardrails: str) -> str | None:
+    """The central index's real path, or None where it lies outside the trees this run knows.
+
+    The index is handed to the registry checker on its command line, so it is admitted only from
+    where an index is ever kept beside a judged checkout: inside the checkout, beside the shared
+    guardrails clone (the ecosystem's working copy, or the CI workspace both are checked out into),
+    or under the working directory. A path that resolves elsewhere is not an index this run reads.
+    """
+    if not index:
+        return None
+    real = os.path.realpath(index)
+    if not os.path.isfile(real):
+        return None
+    roots = (checkout, os.path.dirname(guardrails.rstrip(os.sep)), os.path.realpath(os.getcwd()))
+    for root in roots:
+        if real.startswith(root + os.sep):
+            return real
+    return None
+
+
 def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | None = None,
           index: str | None = None) -> Judgement:
     """Judge one checkout. The gates are run in the checkout; nothing in it is written.
@@ -450,7 +471,7 @@ def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | N
         # Both are `UNKNOWN` here and they are not the same state.
         return Judgement(ORACLE_ID, version, _all_not_run(why, available=(why == EMPTY_CORPUS)))
     gates = [_frontmatter_gate(checkout, guardrails, exclude),
-             _registry_gate(checkout, guardrails, index),
+             _registry_gate(checkout, guardrails, index_within(index, checkout, guardrails)),
              *_agent_gates(checkout, agents_tools)]
     return Judgement(ORACLE_ID, version, gates)
 
