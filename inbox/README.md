@@ -5,8 +5,8 @@ them in. Records arrive here; nothing here reads them.
 
 It exists this early because the alternative is losing rows. Envelopes uploaded by CI are workflow
 artefacts, and ninety days is GitHub's default retention — rows written before there is somewhere
-durable to keep them are gone before V0 can collect them. RFC-2026-09-09 §Risks names creating this
-inbox early, "even if it holds nothing else", as the answer.
+durable to keep them are gone before V0 can collect them. Creating this inbox early, even if it
+holds nothing else, is the answer.
 
 ## Convention
 
@@ -41,10 +41,9 @@ inbox early, "even if it holds nothing else", as the answer.
 
 ## Rules a schema cannot see
 
-These five rules are the specification of the inbox validator, which does not exist. They live
-here because until it does they have no other home — and they are the argument for building it
-before anything analytical: JSON Schema can express none of them, because each is a rule across
-files and a schema sees one document at a time.
+These five rules are what `tools/inbox_validate.py` enforces. They live here because JSON Schema can
+express none of them — each is a rule across files, and a schema sees one document at a time — which
+is the argument for having built the validator before anything analytical.
 
 Which inbox this is, the validator reads from `inbox.json` — JSON, so the first piece of tooling
 that has to read it needs nothing beyond the standard library. Not from the directory name, and not
@@ -78,7 +77,6 @@ marker.
 
 ## What is not settled
 
-Retention and the privacy boundary for event payloads. How long the artefact `event_stream.ref`
-points at is kept, and where exactly the line between metadata and content falls, are open in both
-RFC-2026-09-08 and RFC-2026-09-09, and both record them as a policy question rather than a schema
-one. Neither is answered here, and the conventions above do not depend on the answer.
+The privacy boundary for event payloads: where exactly the line between metadata and content falls
+is open, and ADR-086 §H.37 records it as a policy question rather than a schema one. It is not
+answered here, and the conventions above do not depend on the answer.
