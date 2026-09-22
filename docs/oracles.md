@@ -22,7 +22,7 @@ written.
 | `oracle.id` | `oracle.version` | `oracle.calibration` on a row written today | Written by |
 |:--|:--|:--|:--|
 | `review-disposition` | `rest-v1` | `{suite: none, status: not-run, result: none}` | the CI producer, on a `docs-review-live` row |
-| `docs-guardrails` | the bundle version in force, the same value as `repository_state.bundle_version` | whatever `oracles/docs-guardrails/oracle-selftest.json` publishes — `{suite: docs-mutation-v1, status: pass, result: 8/8}` as it stands | a harness, on a documentation row |
+| `docs-guardrails` | the agent-bundle version the judged checkout pinned when the gates ran, or `unpinned`; it equals `repository_state.bundle_version` except in a run that edited the manifest — that field is read at `base_sha`, this one at the head the run left | whatever `oracles/docs-guardrails/oracle-selftest.json` publishes — `{suite: docs-mutation-v1, status: pass, result: 8/8}` as it stands | a harness, on a documentation row |
 | `scb` | `1.3` | `{suite: oracle-selftest, status: not-run, result: not-run}` | a harness, on a construction row |
 
 An id that is not in this table is not writable: the row would name a state no reader can look up.
@@ -57,6 +57,12 @@ direction it was built to run.
 gates are that bundle's rules. A checkout pinning none is judged all the same and the version
 written is `unpinned`: rows either side of that word are not one population, and a number invented
 for them would hide it.
+
+It is read at the head the run left, which is what makes it a different reading from
+`repository_state.bundle_version` — that one is read at `base_sha`. The two agree on every run but
+one: a run that edited `.agents/manifest.yaml` was subject to the pin it found and was judged by
+the pin it wrote, and the row says both. A reader who takes them for one field would read such a
+row as a contradiction.
 
 ## Why the other two statuses are `not-run`
 

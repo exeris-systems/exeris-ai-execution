@@ -56,6 +56,11 @@ ORACLE_ID = "docs-guardrails"
 UNPINNED = "unpinned"
 BUNDLE = "exeris-agents"
 
+#: Why `corpus` found nothing where the checkout is the reason. Named, because it is the one empty
+#: result that is a fact about the tree rather than about the instrument, and composition treats
+#: the two differently.
+EMPTY_CORPUS = "the checkout holds no documentation the shared taxonomy admits"
+
 # Named once, in the order a reader of a row meets them, and reused for the not-run case so that a
 # judgement always carries the same five gates whether or not any of them could run. A gate that
 # disappears when it cannot run reads as a gate that did not apply.
@@ -107,9 +112,11 @@ def bundle_version(checkout: str, bundle: str = BUNDLE) -> str:
     """The agent-bundle version the checkout pins — this oracle's version.
 
     The gates are the bundle's rules: its policies, its schemas and the agent-layer checks it
-    ships. So the version in force is the version of the oracle, and it is the same value the row's
-    `repository_state.bundle_version` carries — one fact, written twice in a row only because a
-    reader of either column needs it. A checkout that pins nothing is `unpinned`.
+    ships. So the version in force is the version of the oracle, and it is read here from the tree
+    the gates ran over. That is a different reading from the row's
+    `repository_state.bundle_version`, which is taken at the commit the run started from: the two
+    agree except in a run that edited the manifest, where one says what the work was subject to and
+    the other what judged it. A checkout that pins nothing is `unpinned`.
 
     Block style only and scoped to `imports:`, which is how the manifest is written: a `version:`
     under any other key belongs to that key, and the manifest's own schema version is one of them.
@@ -173,15 +180,17 @@ def _verdict(check: str, proc: subprocess.CompletedProcess) -> Gate:
     """A checker's exit code as a gate result.
 
     0 and 1 are the two verdicts these checkers reach — clean, and findings. Any other exit is the
-    checker failing to reach a verdict at all, which is `not-run`: a checker that crashed has said
-    nothing about the corpus, and reading its exit code as a finding would put a tooling failure on
-    the corpus's record.
+    checker failing to reach a verdict at all, which is `not-run` and unavailable: a checker that
+    crashed has said nothing about the corpus, reading its exit code as a finding would put a
+    tooling failure on the corpus's record, and reading its silence as inapplicability would let
+    the gates beside it carry a pass over the part it was meant to judge.
     """
     if proc.returncode == 0:
         return Gate(check, PASS, _detail(proc))
     if proc.returncode == 1:
         return Gate(check, FAIL, _detail(proc))
-    return Gate(check, NOT_RUN, f"the checker exited {proc.returncode}: {_detail(proc)}")
+    return Gate(check, NOT_RUN, f"the checker exited {proc.returncode}: {_detail(proc)}",
+                available=False)
 
 
 _EXCLUDE = re.compile(r"^\s+exclude:\s*(?:\"([^\"]*)\"|'([^']*)'|(\S[^#]*?))\s*$")
@@ -257,14 +266,15 @@ def corpus(checkout: str, guardrails: str, exclude: str = "") -> tuple[list[str]
             if any(rx.match(path) for rx in keep) and not any(rx.match(path) for rx in drop):
                 found.append(path)
     if not found:
-        return [], "the checkout holds no documentation the shared taxonomy admits"
+        return [], EMPTY_CORPUS
     return found, ""
 
 
 def _frontmatter_gate(checkout: str, guardrails: str, exclude: str) -> Gate:
     script = os.path.join(guardrails, "scripts", "frontmatter_check.py")
     if not os.path.isfile(script):
-        return Gate("frontmatter_check", NOT_RUN, f"the checker is not on disk ({script})")
+        return Gate("frontmatter_check", NOT_RUN, f"the checker is not on disk ({script})",
+                    available=False)
     # Strict, because the oracle judges the corpus as it stands rather than the diff that produced
     # it: ramp mode answers "did this change make things worse", which is a different question and
     # not one a row about a finished run can carry. Sections stay off, as the shared workflow has
@@ -283,12 +293,15 @@ def _registry_gate(checkout: str, guardrails: str, index: str | None) -> Gate:
     resolves against whatever is beside the copy.
 
     Any other checkout is a consumer and needs the central index. Without one on disk the gate is
-    `not-run`: the checker would otherwise fetch it, and a gate that depends on the network is not
-    a gate — it reports the network.
+    `not-run` and unavailable: the checker would otherwise fetch it, and a gate that depends on the
+    network is not a gate — it reports the network. The index is one of this gate's inputs, so a
+    checkout with records and no index is a checkout whose records nothing checked, which is not
+    the same as a checkout that has no records.
     """
     script = os.path.join(guardrails, "scripts", "registry_check.py")
     if not os.path.isfile(script):
-        return Gate("registry_check", NOT_RUN, f"the checker is not on disk ({script})")
+        return Gate("registry_check", NOT_RUN, f"the checker is not on disk ({script})",
+                    available=False)
     if os.path.isfile(os.path.join(checkout, "adr-index.md")):
         argv = [sys.executable, script, "--siblings-root",
                 os.path.dirname(os.path.abspath(checkout))]
@@ -300,7 +313,8 @@ def _registry_gate(checkout: str, guardrails: str, index: str | None) -> Gate:
                     "the checkout holds neither a registry nor a records directory")
     if not index or not os.path.isfile(index):
         return Gate("registry_check", NOT_RUN,
-                    "no central index on disk: the check would have to fetch one over the network")
+                    "no central index on disk: the check would have to fetch one over the network",
+                    available=False)
     return _verdict("registry_check", _run(
         [sys.executable, script, "--adr-dir", adr_dir, "--index", os.path.abspath(index)], checkout))
 
@@ -309,7 +323,10 @@ def _agent_gates(checkout: str, agents_tools: str) -> list[Gate]:
     """The three agent-layer checks, run from the bundle's own tooling.
 
     They are not-run where the checkout has no `.agents` tree — there is nothing for them to judge,
-    and a pass on an absent tree is the eighth mutant's shape at the level of one gate.
+    and a pass on an absent tree is the eighth mutant's shape at the level of one gate. That is the
+    only branch here that leaves the gate available: a checkout with an agent layer and a machine
+    without the tooling that judges it is a run whose agent layer nothing read, and the gates that
+    did run cover none of it.
     """
     invocations = {
         "agents_file_check": ["agents_file_check.py"],
@@ -319,20 +336,21 @@ def _agent_gates(checkout: str, agents_tools: str) -> list[Gate]:
     if not os.path.isdir(os.path.join(checkout, ".agents")):
         return [Gate(name, NOT_RUN, "the checkout has no .agents tree") for name in invocations]
     if not os.path.isdir(agents_tools):
-        return [Gate(name, NOT_RUN, f"the agent tooling is not on disk ({agents_tools})")
-                for name in invocations]
+        return [Gate(name, NOT_RUN, f"the agent tooling is not on disk ({agents_tools})",
+                     available=False) for name in invocations]
     gates = []
     for name, argv in invocations.items():
         script = os.path.join(agents_tools, argv[0])
         if not os.path.isfile(script):
-            gates.append(Gate(name, NOT_RUN, f"the checker is not on disk ({script})"))
+            gates.append(Gate(name, NOT_RUN, f"the checker is not on disk ({script})",
+                              available=False))
             continue
         gates.append(_verdict(name, _run([sys.executable, script, *argv[1:]], checkout)))
     return gates
 
 
-def _all_not_run(reason: str) -> list[Gate]:
-    return [Gate(name, NOT_RUN, reason) for name in GATES]
+def _all_not_run(reason: str, *, available: bool = True) -> list[Gate]:
+    return [Gate(name, NOT_RUN, reason, available=available) for name in GATES]
 
 
 def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | None = None,
@@ -342,11 +360,15 @@ def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | N
     agents_tools = os.path.abspath(agents_tools or default_agents_tools())
     version = bundle_version(checkout)
     if not os.path.isdir(checkout):
-        return Judgement(ORACLE_ID, version, _all_not_run(f"there is no checkout at {checkout}"))
+        return Judgement(ORACLE_ID, version,
+                         _all_not_run(f"there is no checkout at {checkout}", available=False))
     exclude = declared_exclusions(checkout)
     files, why = corpus(checkout, guardrails, exclude)
     if not files:
-        return Judgement(ORACLE_ID, version, _all_not_run(why))
+        # A checkout holding no documentation is a tree the gates reached and found nothing in; a
+        # taxonomy that is absent or did not resolve is an instrument that never reached a tree.
+        # Both are `UNKNOWN` here and they are not the same state.
+        return Judgement(ORACLE_ID, version, _all_not_run(why, available=(why == EMPTY_CORPUS)))
     gates = [_frontmatter_gate(checkout, guardrails, exclude),
              _registry_gate(checkout, guardrails, index),
              *_agent_gates(checkout, agents_tools)]

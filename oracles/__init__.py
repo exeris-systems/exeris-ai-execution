@@ -11,6 +11,12 @@ Fail-closed (ADR-086 §E.19) is the whole of that rule:
   * one failed gate makes the run `FALSE_DONE`. The gates that did not run cannot argue with it.
   * `TRUE_DONE` needs every applicable gate to have passed **and** at least one of them to have
     run. A judgement with nothing behind it is the false green an oracle exists to refuse.
+  * a gate that did not run is applicable or it is not, and `Gate.available` is the difference:
+    a gate that reached the checkout and found nothing of its kind to judge does not apply and
+    leaves `TRUE_DONE` to the gates that did run; a gate that never reached the checkout at all
+    holds it back, because the defect it was built to catch would be invisible and the judgement
+    would read as a pass over it. Which of the two a `not-run` is cannot be recovered from the
+    result, so it is stated where the gate is made and only composed here.
   * no gate ran — the checkers are absent, the corpus is empty, the checkout is not there — is
     `UNKNOWN`. `UNKNOWN` is not a pass, which is why the contract admits it as an outcome.
 
@@ -41,11 +47,19 @@ class Gate:
 
     `detail` is what the check reported, quoted rather than summarised: a gate whose detail is this
     module's paraphrase of a checker's output is a second implementation of that checker's opinion.
+
+    `available` is whether the check could reach the thing it judges: its checker on disk, its
+    inputs on disk, and a checkout to read. It is False where one of those was missing and where
+    the checker reached no verdict, and True — the ordinary case — everywhere else, including a
+    gate that ran nothing because the checkout holds nothing of its kind. Composition reads it,
+    because `not-run` alone cannot say whether a gate was silent about nothing or silent about
+    something nobody looked at.
     """
 
     check: str
     result: str
     detail: str = ""
+    available: bool = True
 
     def __post_init__(self) -> None:
         # A result outside the three cannot be composed into an outcome, and the fail-closed rule
@@ -56,13 +70,23 @@ class Gate:
                              f"{sorted(RESULTS)}")
 
     def as_dict(self) -> dict:
-        return {"check": self.check, "result": self.result, "detail": self.detail}
+        return {"check": self.check, "result": self.result, "detail": self.detail,
+                "available": self.available}
 
 
 def outcome_of(gates: Sequence[Gate]) -> str:
-    """`TRUE_DONE`, `FALSE_DONE` or `UNKNOWN` for a set of gates, per ADR-086 §E.19."""
+    """`TRUE_DONE`, `FALSE_DONE` or `UNKNOWN` for a set of gates, per ADR-086 §E.19.
+
+    A failure is the answer whatever else happened. Otherwise a gate that could not reach what it
+    judges makes the judgement `UNKNOWN`, whatever the gates beside it found: the domain this
+    oracle labels is wider than any one gate, so a pass carried by the gates that ran would be a
+    pass over everything the missing one covers. Only with every gate available does a pass
+    anywhere make the run `TRUE_DONE`.
+    """
     if any(g.result == FAIL for g in gates):
         return FALSE_DONE
+    if any(not g.available for g in gates):
+        return UNKNOWN
     if any(g.result == PASS for g in gates):
         return TRUE_DONE
     return UNKNOWN

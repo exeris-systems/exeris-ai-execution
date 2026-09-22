@@ -6,7 +6,10 @@ a docstring, because a rule nobody has watched fail is a rule nobody knows is wi
 
   * how gates compose into an outcome (ADR-086 §E.19) — one failure is `FALSE_DONE`, every
     applicable gate passing with at least one having run is `TRUE_DONE`, and nothing having run is
-    `UNKNOWN`, which includes the empty corpus and the checkout that is not there;
+    `UNKNOWN`, which includes the empty corpus and the checkout that is not there. *Applicable* is
+    the load-bearing word and has its own cases below: a gate whose checker was not on disk is not
+    an inapplicable gate, and a pass carried over one would be the eighth mutant at the level of a
+    single gate;
   * what `docs-mutation-v1` may publish as `status: pass` — 8/8 and a clean copy judged
     `TRUE_DONE`, never one without the other.
 
@@ -66,6 +69,30 @@ def _():
     assert outcome_of(gates) == FALSE_DONE
 
 
+@case("a pass beside a gate that could not run is UNKNOWN, never TRUE_DONE")
+def _():
+    # The composition this oracle's domain requires: it labels a corpus *and* an agent layer, so a
+    # judgement resting on the gates that could run is a judgement about half of what it names.
+    gates = [Gate("frontmatter_check", PASS, ""),
+             Gate("agents_bundle_verify", NOT_RUN, "the agent tooling is not on disk",
+                  available=False)]
+    assert outcome_of(gates) == UNKNOWN, [g.as_dict() for g in gates]
+
+
+@case("a gate the checkout holds nothing for does not hold TRUE_DONE back")
+def _():
+    gates = [Gate("frontmatter_check", PASS, ""),
+             Gate("agents_bundle_verify", NOT_RUN, "the checkout has no .agents tree")]
+    assert outcome_of(gates) == TRUE_DONE, [g.as_dict() for g in gates]
+
+
+@case("a failure outweighs a gate that could not run")
+def _():
+    gates = [Gate("frontmatter_check", FAIL, "x"),
+             Gate("agents_bundle_verify", NOT_RUN, "no tooling", available=False)]
+    assert outcome_of(gates) == FALSE_DONE
+
+
 @case("gates that all failed to run are UNKNOWN, never a pass")
 def _():
     gates = [Gate(name, NOT_RUN, "the corpus is empty") for name in docs_guardrails.GATES]
@@ -105,12 +132,15 @@ def _():
     assert all(g.result == NOT_RUN and "no checkout" in g.detail for g in j.gates), j.as_dict()
 
 
-@case("checkers that are not on disk leave the gates not-run, not passed")
+@case("checkers that are not on disk leave the gates not-run and unavailable, not passed")
 def _():
     with tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as nowhere:
         j = docs_guardrails.judge(checkout, guardrails=nowhere, agents_tools=nowhere)
         assert j.outcome == UNKNOWN, j.as_dict()
         assert all(g.result == NOT_RUN for g in j.gates), j.as_dict()
+        # The instrument was missing, which is the state that must never be composed as a gate
+        # that did not apply.
+        assert all(not g.available for g in j.gates), j.as_dict()
 
 
 @case("an empty corpus comes back empty and says which of the two reasons it is")
@@ -122,7 +152,7 @@ def _():
     with tempfile.TemporaryDirectory() as checkout:
         files, why = docs_guardrails.corpus(checkout, guardrails)
         assert files == [], files
-        expected = ("no documentation the shared taxonomy admits"
+        expected = (docs_guardrails.EMPTY_CORPUS
                     if os.path.isdir(guardrails) else "the shared taxonomy is not on disk")
         assert expected in why, why
 

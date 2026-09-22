@@ -4,7 +4,7 @@ type: reference
 visibility: public
 owning-repo: exeris-ai-execution
 status: active
-last-verified: 2026-09-19
+last-verified: 2026-09-22
 ---
 
 # Fences in force
@@ -67,7 +67,7 @@ would join rows whose harness differed, which is the join `instrument.fence` exi
 
 ## The grammar of a fence id
 
-`<date>-<producer>-cc-<harness version, its dots written as dashes>`
+`<date>-<producer>-cc-<harness version, its dots written as dashes>[-w-<weights digest>]`
 
 - `<date>` — the day the fence was written, `YYYY-MM-DD`, which the contract's own pattern requires
   first.
@@ -75,6 +75,13 @@ would join rows whose harness differed, which is the join `instrument.fence` exi
   it: `ci-backfill`, `ci-live`, `harness-claude`.
 - `cc-<version>` — the client and the version of it the rows were produced under, `2.1.274` written
   `2-1-274`.
+- `w-<digest>` — the first twelve hex of `agent.model_snapshot`, and present only on a fence for
+  rows whose weights are the producer's own machine's. A model snapshot is instrument state under
+  §E.20, and an arm serving local weights reaches the same client at the same version as the arm
+  that reaches a vendor: without this segment the two resolve one id, and rows whose model
+  reference differs would sit on one fence. A row whose snapshot reads `unresolved:<alias>` names
+  no weights and carries no such segment — there is nothing to name, and the alias is the state the
+  marking exists to expose rather than a value to fence on.
 
 The dots are written as dashes because `instrument.fence`'s pattern is a date followed by lower-case
 alphanumeric segments separated by hyphens, and it admits no dot anywhere. A version spelled the way
@@ -84,7 +91,9 @@ to neither half of the rows it marks.
 
 One client version is one fence: a producer that ran under three client versions writes three ids
 and three entries, because the client is part of the model reference (`agent.harness`) and a change
-to it is a change to the run's conditions.
+to it is a change to the run's conditions. One set of weights is one fence for the same reason: a
+local arm whose `.gguf` is replaced writes another id and another entry, and the rows before the
+swap are neither re-derived nor summarised with the rows after it.
 
 The first entry above carries no `cc-` segment, and that is not a shortening: no client ran. A fence
 written for the contract itself names the contract and the version it moved to, because there is no

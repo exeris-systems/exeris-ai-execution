@@ -153,6 +153,10 @@ jobs:
       EXERIS_AGENTS_TOOLS: .agents-tools/tools
     steps:
       - uses: actions/checkout@v7
+      # NEITHER OF THE TWO BELOW IS `continue-on-error`. A gate whose checker is not on disk is
+      # unavailable, not inapplicable, so a judgement made without one of these checkouts is
+      # `UNKNOWN` by construction — and a calibration run scored in that state would be measuring
+      # what the runner failed to fetch rather than what the oracle catches.
       - name: The shared guardrails (exeris-systems/.github)
         uses: actions/checkout@v7
         with: { repository: exeris-systems/.github, path: .guardrails }
