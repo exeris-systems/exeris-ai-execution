@@ -44,6 +44,10 @@ jobs:
       # `exeris-agents`, and this repository holds schemas, an inbox and the tooling that reads
       # it. On with the first agent-facing file, not before.
       agent-check: false
+      # Fixtures are inputs to a suite, not documentation: a routine excerpt and an agents file with
+      # placeholder text, read by tests as the bodies a host would serve. Linting them as records
+      # would ask a fixture for a frontmatter it exists to lack.
+      exclude: "tools/fixtures"
       # `link-check` stays at its default. The empty run that failed the first adoption was a
       # debt, not a property: ADR-086 Engineering Protocol 6 and ADR-087 Engineering Protocol 8
       # both owe this repository a link stub, and `docs/adr/` now carries them. A check with
