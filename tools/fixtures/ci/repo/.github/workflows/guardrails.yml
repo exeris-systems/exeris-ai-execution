@@ -1,0 +1,23 @@
+# Fixture excerpt of the reviewed repository's caller, held at the run's head SHA.
+#
+# Two things are read here: `l1-results`, which names the gate each L1 job reports under, and the
+# `repo-routine` / `repo-checks` inputs, which are two of the produce prompt's five substitutions.
+jobs:
+  docs:
+    uses: exeris-systems/.github/.github/workflows/docs-lint.yml@main
+  commits:
+    uses: exeris-systems/.github/.github/workflows/commit-lint.yml@main
+  pr-body:
+    uses: exeris-systems/.github/.github/workflows/pr-body-check.yml@main
+  docs-review:
+    needs: [docs, commits, pr-body]
+    if: ${{ always() }}
+    uses: exeris-systems/.github/.github/workflows/docs-review.yml@main
+    with:
+      publish: true
+      l1-results: >-
+        {"docs-lint": "${{ needs.docs.result }}",
+         "commit-lint": "${{ needs.commits.result }}",
+         "pr-body-check": "${{ needs.pr-body.result }}"}
+      repo-routine: docs/repo-review-rules.md
+      repo-checks: python3 tools/inbox_validate_suite.py

@@ -1,0 +1,43 @@
+# Fixture excerpt of the org's produce job, held at the SHA `referenced_workflows` names.
+#
+# Only two things here are read: the `--allowedTools` line inside `claude_args`, which is the run's
+# tool surface, and the `prompt: |` block, which is the text the runner was handed. The block
+# carries the five substitution expressions the real workflow carries, in the forms it writes them;
+# the prose between them is the fixture's own, because a fixture that copies a live prompt would be
+# copying content into a repository that holds none.
+on:
+  workflow_call:
+    inputs:
+      l1-results:
+        type: string
+        default: ''
+      repo-routine:
+        type: string
+        default: ''
+      repo-checks:
+        type: string
+        default: ''
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The L1 gate results, in the verdict's vocabulary
+        id: gates
+        run: echo x
+      - name: Docs and hygiene review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
+          prompt: |
+            Review pull request ${{ github.event.pull_request.number }} in
+            ${{ github.repository }} against the routine in
+            `.guardrails/docs-guardrails-review.md`.
+
+            L1 GATE RESULTS, already in the shape `checks_run` takes:
+
+            ${{ steps.gates.outputs.checks_run }}
+
+            REPOSITORY EXTENSION: ${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}
+            REPOSITORY CHECK OUTPUT: ${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}

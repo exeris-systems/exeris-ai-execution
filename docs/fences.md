@@ -24,6 +24,46 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | Fence id | Date | Producer | What it marks | Entry |
 |:--|:--|:--|:--|:--|
 | `2026-09-19-contract-0-2-0` | 2026-09-19 | none — the contract, not a producer | The row contract moving from `0.1.0` to `0.2.0`: eight optional `execution` fields, a third `workload.fingerprint` class, and the local form of `agent.model_snapshot`. | A change to the capture version writes a dated fence under §E.20 whatever SemVer step it is; §C.9's "MAJOR writes a fence" says what makes a step MAJOR, not what makes a fence, and this step is a MINOR. So this is a fence that fences nothing: the inbox holds no rows, so there is no figure on either side of it and nothing that could be summarised across it. It is entered because the register is what makes an id resolvable, and the first id is the one most likely to be assumed rather than looked up. Every field the version adds is optional, so no row written against `0.1.0` would have become invalid had one existed. |
+| `2026-09-19-ci-backfill-cc-2-1-272` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.272`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
+| `2026-09-19-ci-backfill-cc-2-1-273` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.273`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
+| `2026-09-19-ci-backfill-cc-2-1-274` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.274`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
+| `2026-09-19-ci-backfill-cc-2-1-278` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.278`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
+
+## The backfill fences
+
+The four `ci-backfill` ids above share one entry, because they mark one derivation run under four
+client versions and the argument is the same argument four times.
+
+**What is reconstructed.** A stream carries what the runner said, never the prompt it was given,
+and the reviewing workflow exported no hash of that prompt at the time these runs happened. So
+`agent.system_prompt_sha256` on these rows is not a measurement of text the producer read from the
+run; it is recomputed from what GitHub still holds — the reviewing workflow's `prompt:` block at
+the SHA the run's own `referenced_workflows` names, rendered with the run's inputs, then the
+routine file at that same SHA, then `AGENTS.md` at the reviewed commit. ADR-087 §C.14 admits this
+for a backfill and only as a stated derivation: the fence is the statement, and without it the
+column would claim to be the same kind of fact as a captured hash.
+
+**The two assumptions.** Neither is recoverable from the run, and both are conditions the rows
+depend on:
+
+1. `referenced_workflows[].sha` names the commit of the routine repository the run resolved its
+   reusable workflow at, and the produce job's own checkout of that repository — which is
+   unpinned — read that same commit. A produce job that pins its checkout independently of the
+   workflow reference makes the two different commits, and rows derived after such a change belong
+   on the far side of a fence from rows derived before it.
+2. `AGENTS.md` is taken at the reviewed commit, which is the commit `repository_state.commit`
+   names. The runner read it on the merge ref — the reviewed commit merged into its base — so the
+   two agree except where the base moved under the run.
+
+**What retires them.** The first live run that exports these components as text lets the
+reconstruction be checked against them component by component. Agreement leaves the fences standing
+as a record of how the rows were made. A disagreement retires them by a dated entry in this
+register, and the rows already written stay marked and are neither re-derived nor removed — §E.20's
+rule, applied to the producer that wrote them.
+
+**Why four.** One client version is one fence, by the rule stated below, and the rescued streams
+were produced under `2.1.272`, `2.1.273`, `2.1.274` and `2.1.278`. A single id spanning all four
+would join rows whose harness differed, which is the join `instrument.fence` exists to prevent.
 
 ## The grammar of a fence id
 

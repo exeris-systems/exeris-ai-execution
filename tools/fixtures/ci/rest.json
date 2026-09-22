@@ -1,0 +1,143 @@
+{
+ "repos/exeris-systems/exeris-ai-execution": {
+  "default_branch": "main",
+  "full_name": "exeris-systems/exeris-ai-execution",
+  "private": false,
+  "visibility": "public"
+ },
+ "repos/exeris-systems/exeris-ai-execution/actions/runs/41000000001": {
+  "conclusion": "success",
+  "event": "pull_request",
+  "head_branch": "docs/x",
+  "head_sha": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+  "id": 41000000001,
+  "name": "Guardrails",
+  "pull_requests": [],
+  "referenced_workflows": [
+   {
+    "path": "exeris-systems/.github/.github/workflows/docs-review.yml@main",
+    "ref": "refs/heads/main",
+    "sha": "e5f60718e5f60718e5f60718e5f60718e5f60718"
+   },
+   {
+    "path": "exeris-systems/.github/.github/workflows/publish-verdict.yml@main",
+    "ref": "refs/heads/main",
+    "sha": "e5f60718e5f60718e5f60718e5f60718e5f60718"
+   }
+  ],
+  "repository": {
+   "full_name": "exeris-systems/exeris-ai-execution"
+  },
+  "run_started_at": "2026-09-17T09:58:12Z",
+  "status": "completed"
+ },
+ "repos/exeris-systems/exeris-ai-execution/actions/runs/41000000001/jobs": {
+  "jobs": [
+   {
+    "conclusion": "success",
+    "name": "docs / lint",
+    "steps": [
+     {
+      "name": "Set up job",
+      "started_at": "2026-09-17T09:58:20Z"
+     }
+    ]
+   },
+   {
+    "conclusion": "success",
+    "name": "commits / lint",
+    "steps": [
+     {
+      "name": "Set up job",
+      "started_at": "2026-09-17T09:58:20Z"
+     }
+    ]
+   },
+   {
+    "conclusion": "failure",
+    "name": "pr-body / check",
+    "steps": [
+     {
+      "name": "Set up job",
+      "started_at": "2026-09-17T09:58:20Z"
+     }
+    ]
+   },
+   {
+    "conclusion": "success",
+    "name": "docs-review / produce",
+    "steps": [
+     {
+      "name": "Set up job",
+      "started_at": "2026-09-17T09:58:20Z"
+     },
+     {
+      "name": "The L1 gate results, in the verdict's vocabulary",
+      "started_at": "2026-09-17T09:59:40Z"
+     },
+     {
+      "name": "Docs and hygiene review",
+      "started_at": "2026-09-17T10:00:00Z"
+     },
+     {
+      "name": "Complete job",
+      "started_at": "2026-09-17T10:07:00Z"
+     }
+    ]
+   }
+  ],
+  "total_count": 4
+ },
+ "repos/exeris-systems/exeris-ai-execution/contents/.agents/vendor?ref=a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4": [
+  {
+   "name": "exeris-agents-2.1.0",
+   "path": ".agents/vendor/exeris-agents-2.1.0",
+   "type": "dir"
+  }
+ ],
+ "repos/exeris-systems/exeris-ai-execution/issues/7/comments": [
+  {
+   "body": "<!-- exeris-bot: l2-verdict agent=x decision=PASS sha=a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4 -->\n\n## Docs and hygiene review\n\nx\n\nVerdict read from the execution log.\n\nrunner: `claude-code-action`",
+   "created_at": "2026-09-17T10:08:00Z",
+   "id": 1,
+   "user": {
+    "login": "exeris-bot[bot]",
+    "type": "Bot"
+   }
+  }
+ ],
+ "repos/exeris-systems/exeris-ai-execution/pulls/7": {
+  "base": {
+   "ref": "main",
+   "sha": "9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c"
+  },
+  "body": "Motivation: x\n\nModification: x\n\nResult: x\n\n## Classification\nScope class: docs-only\nWall impact: none\nGenerated files touched: no\nTCK obligation: n/a\nCompatibility impact: none\nCross-repo impact: none\nADRs referenced: none\nEvidence state: citable\n\n## Verification\n\nx\n\nRefs: ADR-086",
+  "draft": false,
+  "head": {
+   "ref": "docs/x",
+   "sha": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+  },
+  "merged_at": "2026-09-17T12:00:00Z",
+  "number": 7,
+  "state": "closed",
+  "title": "docs: x",
+  "user": {
+   "login": "x-user",
+   "type": "User"
+  }
+ },
+ "repos/exeris-systems/exeris-ai-execution/pulls/7/commits": [
+  {
+   "commit": {
+    "message": "x"
+   },
+   "sha": "1111111111111111111111111111111111111111"
+  },
+  {
+   "commit": {
+    "message": "x"
+   },
+   "sha": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+  }
+ ]
+}

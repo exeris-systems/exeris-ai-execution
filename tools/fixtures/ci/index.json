@@ -1,0 +1,14 @@
+[
+ {
+  "repo": "exeris-systems/exeris-ai-execution",
+  "artifact_id": 20000000001,
+  "artifact_name": "l2-execution-7",
+  "workflow_run_id": 41000000001,
+  "path": "streams/2026-09-17/exeris-ai-execution/41000000001-20000000001.json",
+  "sha256": "06378d0137699eb227bf5ebe69b213204e25593b069821fd9a627572548d043f",
+  "size_bytes": 18211,
+  "event_count": 40,
+  "created_at": "2026-09-17T10:07:30Z",
+  "artifact_expires_at": "2026-09-24T10:07:30Z"
+ }
+]
