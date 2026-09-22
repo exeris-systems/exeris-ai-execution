@@ -65,20 +65,38 @@ SCOPE_CLASSES = {
 # A substitution is keyed by its own expression rather than by a nickname for it, so that what
 # a caller supplies and what the template asks for are one string and cannot be paired wrongly.
 #
-# Two of them state the same fact in two workflow generations: `inputs.l1-results` is the caller's
-# own text handed to the prompt whole, and `steps.gates.outputs.checks_run` is that text after a
-# translating step was put between them. A template carries one or the other, and the reconstruction
-# supplies both so that the generation a run belongs to is the template's to decide.
+# Two PAIRS of them state one fact in two workflow generations, and both members are supplied so
+# that the generation a run belongs to is the template's to decide rather than this module's.
+# `inputs.l1-results` is the caller's own text handed to the prompt whole, and
+# `steps.gates.outputs.checks_run` is that text after a translating step was put between them.
+# `inputs.repo-routine` names the extension at the caller's own path, and `repo-routine.base.md`
+# names the copy the job takes from the base commit — a pull request does not get to write the
+# rules it is judged by, so the prompt stopped naming the file the pull request can edit.
 PROMPT_SUBSTITUTIONS = (
     "${{ github.event.pull_request.number }}",
     "${{ github.repository }}",
     "${{ steps.gates.outputs.checks_run }}",
     "${{ inputs.l1-results }}",
     "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}",
+    "${{ inputs.repo-routine != '' && 'repo-routine.base.md' || '(none)' }}",
     "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}",
 )
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
+# An expression naming a workflow variable, which is the one class of expression that can be
+# resolved from the workflow text alone: `env:` is written in the file, where `inputs` and `needs`
+# are the run's.
+ENV_EXPRESSION = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+# The action's `prompt:` where it names a step's output instead of carrying the text. A prompt is
+# hashed as rendered, so the job renders it once into a file and hands the action the same string
+# through a step output; the text then stands in that step's `run:` and no longer in the `with:`.
+PROMPT_OUTPUT = re.compile(
+    r"^[ \t]*prompt:[ \t]*\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_-]+\s*\}\}[ \t]*$",
+    re.M)
+# A here-document's opening redirection, with its delimiter. The quoting is read rather than
+# ignored: an unquoted delimiter lets the shell expand the body, so the file written is not the
+# text standing in the workflow and no reading of the workflow is the prompt.
+HEREDOC = re.compile(r"<<(-?)(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 ARTIFACT_NAME = re.compile(r"^l2-execution-(\d+)$")
 NEEDS_RESULT = re.compile(
     r'"([^"]+)"\s*:\s*"\$\{\{\s*needs\.([A-Za-z0-9_.-]+)\.result\s*\}\}"')
@@ -449,6 +467,145 @@ def folded_scalar(text: str, key: str) -> str | None:
     return value + "\n"
 
 
+def plain_scalar(value: str) -> str | None:
+    """A single-line YAML scalar's value, or None where the text is not one.
+
+    Quotes are stripped where they surround the whole value, because they are the spelling and not
+    the string. Anything opening a block, an anchor, an alias or a collection is None: those have
+    values this does not compute, and returning the text as though it were the value would state a
+    string the host never built.
+    """
+    value = value.strip()
+    if not value or value[0] in "|>&*{[":
+        return None
+    if value[0] in "'\"" and len(value) > 1 and value[-1] == value[0]:
+        return value[1:-1]
+    return value
+
+
+def workflow_env(text: str, name: str) -> str | None:
+    """The value a workflow's `env:` blocks give NAME, or None where that is not established.
+
+    None where no block names it, AND none where two do. `env:` is scoped — a workflow, a job and a
+    step may each declare one — so which value a given step ran under is a fact about the hierarchy
+    that this reading of the file does not have. One value written once is the case this answers,
+    and it is the shape the review workflow's allow-list is written in for the same reason it is
+    read here: two consumers spend one string, so there is one string to spell.
+    """
+    found: set[str] = set()
+    entry = re.compile(rf"^(\s*){re.escape(name)}:\s*(.*)$")
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        opener = re.match(r"^(\s*)env:\s*$", line)
+        if not opener:
+            continue
+        parent = len(opener.group(1))
+        for candidate in lines[index + 1:]:
+            if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= parent:
+                break
+            hit = entry.match(candidate)
+            if hit and len(hit.group(1)) > parent:
+                value = plain_scalar(hit.group(2))
+                if value is not None:
+                    found.add(value)
+    return found.pop() if len(found) == 1 else None
+
+
+def step_block(text: str, step_id: str) -> str | None:
+    """The lines of the step carrying `id: <step_id>`, as written, or None where no step does.
+
+    A step is a list item, so its extent is its marker's column: every line more indented than the
+    `- ` that opens it, up to the first that is not. It is found by id rather than by position
+    because a step's place in a job is not something the workflow promises and its id is — the same
+    id the expression that spends its output names.
+    """
+    lines = text.splitlines()
+    marker = re.compile(r"^(\s*)-\s")
+    wanted = re.compile(rf"^(\s*)id:\s*['\"]?{re.escape(step_id)}['\"]?\s*$")
+    for index, line in enumerate(lines):
+        found = wanted.match(line)
+        if not found:
+            continue
+        start = None
+        for back in range(index, -1, -1):
+            opener = marker.match(lines[back])
+            if opener and len(opener.group(1)) < len(found.group(1)):
+                start = back
+                break
+        if start is None:
+            continue
+        column = len(marker.match(lines[start]).group(1))
+        body = [lines[start]]
+        for candidate in lines[start + 1:]:
+            if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= column:
+                break
+            body.append(candidate)
+        return "\n".join(body)
+    return None
+
+
+def heredoc_body(script: str) -> str:
+    """The text a shell script's first here-document writes, as the shell would write it.
+
+    Two things are refused rather than worked around. An UNQUOTED delimiter lets the shell expand
+    the body, so what lands in the file is not what stands in the workflow and no reading of the
+    workflow is the prompt. A body whose delimiter never arrives is a script that would not run, so
+    there is no text it wrote.
+
+    The terminator is the line that IS the delimiter, which is the shell's own rule: a line
+    carrying anything else, leading space included, is body. Every body line ends in a newline,
+    because that is what the redirection writes.
+    """
+    lines = script.splitlines()
+    for index, line in enumerate(lines):
+        found = HEREDOC.search(line)
+        if found is None:
+            continue
+        if found.group(1) or not found.group(2):
+            raise UnsupportedTemplate(
+                "the step that renders the prompt opens an unquoted here-document, whose body the "
+                "shell expands before it is written")
+        delimiter = found.group(3)
+        body: list[str] = []
+        for candidate in lines[index + 1:]:
+            if candidate == delimiter:
+                return "".join(part + "\n" for part in body)
+            body.append(candidate)
+        raise UnsupportedTemplate(
+            f"the here-document `{delimiter}` the prompt is written from is never closed")
+    raise UnsupportedTemplate("the step that renders the prompt writes no here-document")
+
+
+def prompt_template(text: str) -> str:
+    """The prompt as the workflow spells it, before substitution.
+
+    Two spellings, because the workflow has had two. The text may stand in the action's own
+    `prompt:` block scalar; or the job may render it once into a file and hand the action the same
+    string through a step output, in which case `prompt:` names that step and the text stands in
+    the here-document that step's `run:` writes.
+
+    The second spelling is what lets the job that rendered the prompt export a hash over it, so a
+    reader that knew only the first would answer "this workflow carries no prompt" for every run of
+    the generation whose hash is checkable — and a reconstruction that yields no row for those runs
+    is a reconstruction that cannot be compared with anything.
+    """
+    body = block_scalar(text, "prompt")
+    if body is not None:
+        return body
+    found = PROMPT_OUTPUT.search(text)
+    if found is None:
+        raise UnsupportedTemplate("the workflow carries no `prompt:` block scalar")
+    step = step_block(text, found.group(1))
+    if step is None:
+        raise UnsupportedTemplate(f"the workflow hands the runner `steps.{found.group(1)}.outputs` "
+                                  f"and no step carries that id")
+    script = block_scalar(step, "run")
+    if script is None:
+        raise UnsupportedTemplate(f"the step `{found.group(1)}` that renders the prompt carries no "
+                                  f"`run:` block scalar")
+    return heredoc_body(script)
+
+
 def expression_key(text: str) -> str:
     """One `${{ … }}` expression in the one spelling this module compares by.
 
@@ -475,9 +632,7 @@ def render_prompt(template: str, subs: dict) -> str:
     the caller and not a fact about the template — the two are kept apart so that one does not
     arrive counted as the other.
     """
-    body = block_scalar(template, "prompt")
-    if body is None:
-        raise UnsupportedTemplate("the workflow carries no `prompt:` block scalar")
+    body = prompt_template(template)
     supplied = {expression_key(key): value for key, value in subs.items()}
     supported = {expression_key(one) for one in PROMPT_SUBSTITUTIONS}
 
@@ -490,7 +645,7 @@ def render_prompt(template: str, subs: dict) -> str:
     return EXPRESSION.sub(one, body)
 
 
-def allow_list_tokens(claude_args: str | None) -> list[str] | None:
+def allow_list_tokens(claude_args: str | None, workflow: str | None = None) -> list[str] | None:
     """The tools the client was launched with, or None where the launch passed no allow-list.
 
     Split at bracket depth zero, because a token may carry a comma inside its own parentheses and a
@@ -501,6 +656,18 @@ def allow_list_tokens(claude_args: str | None) -> list[str] | None:
     client's own defaults, and an empty one is a run permitted nothing. `tool_surface` records
     which, because a hash that read them alike would compare two runs whose powers were not the
     same.
+
+    THE LIST MAY BE SPENT THROUGH A VARIABLE. Two consumers read it — the launch and the digest
+    that says which powers a run was compared under — so the workflow writes it once as `env:` and
+    names it in both. Given the workflow text, an `${{ env.NAME }}` in the value is resolved
+    against that file; without it, or where the file does not establish one value, the expression
+    stands.
+
+    AN UNRENDERED EXPRESSION COSTS THE ROW. A token still carrying `${{` names no tool, and the
+    surface hashed over it would be sixty-four hexadecimal digits over an allow-list no run ever
+    had — indistinguishable from a digest over one that did, which is the single outcome the
+    contract forbids. The prompt half of this reconstruction already refuses on the same ground,
+    and a half that returned a plausible value where the other refuses is the half nobody checks.
     """
     if claude_args is None:
         return None
@@ -516,6 +683,11 @@ def allow_list_tokens(claude_args: str | None) -> list[str] | None:
             value = token[len("--allowedTools="):]
     if value is None:
         return None
+    if workflow is not None:
+        def resolve(match: re.Match) -> str:
+            named = workflow_env(workflow, match.group(1))
+            return match.group(0) if named is None else named
+        value = ENV_EXPRESSION.sub(resolve, value)
     out, depth, current = [], 0, ""
     for character in value:
         if character in "([":
@@ -528,7 +700,13 @@ def allow_list_tokens(claude_args: str | None) -> list[str] | None:
         else:
             current += character
     out.append(current)
-    return [part.strip() for part in out if part.strip()]
+    allow = [part.strip() for part in out if part.strip()]
+    unrendered = [part for part in allow if "${{" in part]
+    if unrendered:
+        raise UnsupportedTemplate(f"the allow-list carries the unrendered expression "
+                                  f"`{unrendered[0]}`, so the tools the run was permitted are not "
+                                  f"established")
+    return allow
 
 
 # The tools that read and nothing else, and the shell commands that do. Neither list is a

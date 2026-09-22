@@ -1,0 +1,61 @@
+# Fixture excerpt of the org's produce job, held at the SHA `referenced_workflows` names — the
+# generation that renders the prompt once and hashes what it rendered.
+#
+# Three things here are read. The job's `ALLOWED_TOOLS`, because the launch line spends the
+# allow-list through a variable rather than writing it out: two consumers read that list, the
+# launch and the digest, and a second copy of it would be a second answer. The here-document the
+# `prompt` step writes, because that is the text the runner was handed — the action's `prompt:` no
+# longer carries it and names the step's output instead. And the action's `prompt:` itself, which
+# says which step to read.
+#
+# The prose inside the here-document is `docs-review.yml`'s, unchanged: moving where a prompt is
+# written is not supposed to move the prompt, and the hash over this one is the same constant.
+on:
+  workflow_call:
+    inputs:
+      l1-results:
+        type: string
+        default: ''
+      repo-routine:
+        type: string
+        default: ''
+      repo-checks:
+        type: string
+        default: ''
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    env:
+      ALLOWED_TOOLS: "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
+    steps:
+      - name: The L1 gate results, in the verdict's vocabulary
+        id: gates
+        run: echo x
+      - name: The prompt, rendered once
+        id: prompt
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/review-prompt.txt" <<'RENDERED_PROMPT'
+          Review pull request ${{ github.event.pull_request.number }} in
+          ${{ github.repository }} against the routine in
+          `.guardrails/docs-guardrails-review.md`.
+
+          L1 GATE RESULTS, already in the shape `checks_run` takes:
+
+          ${{ steps.gates.outputs.checks_run }}
+
+          REPOSITORY EXTENSION: ${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}
+          REPOSITORY CHECK OUTPUT: ${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}
+          RENDERED_PROMPT
+          {
+            echo "text<<RENDERED_PROMPT_OUTPUT"
+            cat "$RUNNER_TEMP/review-prompt.txt"
+            echo "RENDERED_PROMPT_OUTPUT"
+          } >> "$GITHUB_OUTPUT"
+      - name: Docs and hygiene review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: |
+            --allowedTools "${{ env.ALLOWED_TOOLS }}"
+          prompt: ${{ steps.prompt.outputs.text }}

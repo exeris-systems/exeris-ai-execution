@@ -26,6 +26,8 @@ after it:
   * `ci_row.render_prompt(template, subs)` takes the workflow file's whole text and a mapping whose
     keys are the substitution expressions as they are written in it, `${{ github.repository }}` and
     the other five.
+  * `ci_row.allow_list_tokens(claude_args, template)` takes the launch line and, optionally, the
+    workflow text the launch line came from, which is where a variable the line spends is written.
   * `ci_row.refuse_publisher(row)` raises on a row that puts an organisation App's name in `agent.*`
     and returns on one that puts it in `execution.principal`.
   * The pre-write validator is reached through the module-level name `tools.derive_ci_rows.check`,
@@ -90,6 +92,12 @@ DOCS_REVIEW = "guardrails-org/.github/workflows/docs-review.yml"
 # directly instead of a step's translation of it. Both are served at the path and commit the run's
 # `referenced_workflows` names, because that is where a run says its review workflow was.
 DOCS_REVIEW_L1 = "guardrails-org/.github/workflows/docs-review-l1-results.yml"
+# The same produce job one generation later, where the prompt is rendered once into a file and the
+# action is handed the string through a step output, and the allow-list is spent through the job's
+# own `env:` rather than written on the launch line. Both moves exist so that the job which ran the
+# model can export a hash over what it actually handed over; a reconstruction that could not read
+# either spelling would yield no row for exactly the runs whose hash is checkable against its own.
+DOCS_REVIEW_RENDERED = "guardrails-org/.github/workflows/docs-review-rendered.yml"
 ROUTINE = "guardrails-org/docs-guardrails-review.md"
 AGENTS_MD = "repo/AGENTS.md"
 MANIFEST = "repo/.agents/manifest.yaml"
@@ -1152,6 +1160,123 @@ def _(root):
     w3.build()
     _code, out = w3.run()
     assert_no_row(w3, out, "head-not-in-pr", "head")
+
+
+# 26 — the golden of the generation that renders the prompt once and exports the hash over it.
+
+@case("26 — a prompt written into a here-document renders the same text and hashes the same")
+def _(root):
+    w = World(root)
+    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW_RENDERED))
+    w.build()
+    code, out = w.run()
+    assert code == 0, out
+
+    rendered = ci_row().render_prompt(fixture(DOCS_REVIEW_RENDERED), SUBS)
+    assert rendered == GOLDEN_PROMPT, repr(rendered)
+
+    # WHERE the prompt is written moved; WHAT it says did not, so neither did the hash. That is the
+    # whole claim this generation makes, and it is the claim the live export is checked against
+    # component by component — a reader comparing the two must be comparing canonicalisations, not
+    # two spellings of one text.
+    row = w.row()
+    assert row["agent"]["system_prompt_sha256"] == SYSTEM_PROMPT_SHA256, row["agent"]
+    # And the surface survives being named rather than written: the allow-list is the job's `env:`,
+    # read from the file the launch line is in, so the digest is over the tools the run had.
+    assert row["execution"]["tool_surface"] == TOOL_SURFACE, row["execution"]
+    assert validate(w.out) == [], validate(w.out)
+
+    # THE EXTENSION THE PROMPT NAMES IS THE BASE COPY. A pull request does not get to write the
+    # rules it is judged by, so the prompt stopped naming the caller's own path and names the file
+    # the job took from the base commit — a different expression, and a fourth spelling this has to
+    # supply or every run of the workflow that ships is refused over its own line break.
+    based = fixture(DOCS_REVIEW_RENDERED).replace(
+        "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}",
+        "${{ inputs.repo-routine != '' && 'repo-routine.base.md' || '(none)' }}")
+    assert based != fixture(DOCS_REVIEW_RENDERED)
+    subs = {k: v for k, v in SUBS.items() if "inputs.repo-routine" not in k}
+    subs["${{ inputs.repo-routine != '' && 'repo-routine.base.md' || '(none)' }}"] = \
+        "repo-routine.base.md"
+    want_text = GOLDEN_PROMPT.replace("REPOSITORY EXTENSION: docs/repo-review-rules.md",
+                                      "REPOSITORY EXTENSION: repo-routine.base.md")
+    assert ci_row().render_prompt(based, subs) == want_text, \
+        repr(ci_row().render_prompt(based, subs))
+
+    # End to end, with the caller's `repo-routine` deciding which of the two words the line carries.
+    # The digest is built here from the three fixture texts rather than taken from the producer, so
+    # a producer that agreed with itself and with nothing else disagrees with this.
+    base_copy = os.path.join(root, "base-copy")
+    os.makedirs(base_copy)
+    w2 = World(base_copy)
+    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, based)
+    w2.build()
+    code, out = w2.run()
+    assert code == 0, out
+    want = hashlib.sha256(
+        (want_text.rstrip("\n") + "\n" + fixture(ROUTINE).rstrip("\n") + "\n"
+         + fixture(AGENTS_MD).rstrip("\n") + "\n").encode("utf-8")).hexdigest()
+    got = w2.row()["agent"]["system_prompt_sha256"]
+    assert got == want, got
+    assert got != SYSTEM_PROMPT_SHA256, got
+
+
+# 27 — the two halves of one reconstruction refuse alike. An unrenderable prompt already costs the
+# row; an unrendered allow-list must too, because sixty-four hexadecimal digits over a surface no
+# run ever had read exactly like sixty-four over one it did.
+
+@case("27 — an unrendered allow-list costs the row rather than hashing a surface nobody had")
+def _(root):
+    mod = ci_row()
+    template = fixture(DOCS_REVIEW_RENDERED)
+
+    # Handed the file the launch line came from, the variable resolves and the tokens are the run's
+    # own, in the order the list writes them.
+    allow = mod.allow_list_tokens(mod.block_scalar(template, "claude_args"), template)
+    assert allow == ["Read", "Grep", "Glob", "Bash(git diff:*)", "Bash(git log:*)",
+                     "Bash(git show:*)", "Bash(git status:*)"], allow
+
+    # Without it the expression stands, and a token still carrying one is refused rather than
+    # hashed.
+    try:
+        mod.allow_list_tokens(mod.block_scalar(template, "claude_args"))
+    except mod.UnsupportedTemplate as exc:
+        assert "${{" in str(exc), str(exc)
+    else:
+        raise AssertionError("an unrendered allow-list was returned as a list of tools")
+
+    # The same refusal as the deriver's answer, not only as the function's: a variable no `env:`
+    # block in the file names is a surface the file does not establish.
+    unnamed = template.replace("${{ env.ALLOWED_TOOLS }}", "${{ env.NOT_DECLARED_HERE }}")
+    assert unnamed != template
+    w = World(root)
+    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, unnamed)
+    w.build()
+    _code, out = w.run()
+    assert_no_row(w, out, "template", "unsupported", "${{")
+
+    # And the prompt half: an action pointed at a step that is not there carries no prompt, which
+    # is not the same as carrying an empty one.
+    orphan = template.replace("steps.prompt.outputs.text", "steps.nowhere.outputs.text")
+    assert orphan != template
+    missing = os.path.join(root, "missing-step")
+    os.makedirs(missing)
+    w2 = World(missing)
+    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, orphan)
+    w2.build()
+    _code, out = w2.run()
+    assert_no_row(w2, out, "template", "unsupported", "nowhere")
+
+    # A here-document whose delimiter is unquoted is expanded by the shell before it is written, so
+    # the workflow's text is not the file's and no reading of the workflow is the prompt.
+    expanded = template.replace("<<'RENDERED_PROMPT'", "<<RENDERED_PROMPT")
+    assert expanded != template
+    unquoted = os.path.join(root, "unquoted")
+    os.makedirs(unquoted)
+    w3 = World(unquoted)
+    w3.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, expanded)
+    w3.build()
+    _code, out = w3.run()
+    assert_no_row(w3, out, "template", "unsupported", "here-document")
 
 
 def main() -> int:

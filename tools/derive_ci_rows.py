@@ -499,6 +499,8 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
         "${{ inputs.l1-results }}": l1_input,
         "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}":
             inputs.get("repo-routine") or "(none)",
+        "${{ inputs.repo-routine != '' && 'repo-routine.base.md' || '(none)' }}":
+            "repo-routine.base.md" if (inputs.get("repo-routine") or "").strip() else "(none)",
         "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}":
             "repo-checks.out" if (inputs.get("repo-checks") or "").strip() else "(none)",
     }
@@ -518,7 +520,15 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
     # An unreadable permission file leaves the surface absent, which is what the contract asks of a
     # producer that cannot read what a run was permitted — no digest is the one thing that does not
     # read as "unrestricted". An ABSENT file is a different answer and is inside the hash.
-    allow = ci_row.allow_list_tokens(ci_row.block_scalar(template, "claude_args"))
+    #
+    # The whole template goes in beside the launch line: the allow-list may be spent through a
+    # workflow variable, and the file is where that variable's value is. An expression it cannot
+    # resolve costs the row for the reason an unrenderable prompt does — a surface hashed over an
+    # unrendered expression is a digest over an allow-list no run ever had.
+    try:
+        allow = ci_row.allow_list_tokens(ci_row.block_scalar(template, "claude_args"), template)
+    except ci_row.UnsupportedTemplate as exc:
+        return out.no_row("template-unsupported", str(exc))
     settings_raw = text_at(fetcher, repo, SETTINGS_PATH, head_sha)
     surface: str | None
     if settings_raw is UNREADABLE:
