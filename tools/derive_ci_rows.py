@@ -300,6 +300,7 @@ class Outcome:
     started_at_coarse: bool = False
     denial_mismatch: dict | None = None
     surface_writes_nothing: bool | None = None
+    head_rebased_away: bool | None = None
     path: str | None = None
     state: str | None = None
 
@@ -415,12 +416,26 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
     if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
         return out.no_row("head-unresolved", "the run names no head commit")
 
+    pull_json = fetcher.get(f"repos/{repo}/pulls/{pull}")
+    pull_json = None if absent(pull_json) or not isinstance(pull_json, dict) else pull_json
+
     commits = fetcher.get(f"repos/{repo}/pulls/{pull}/commits")
     if not isinstance(commits, list):
         return out.no_row("pr-404", f"pull request {pull} has no commit list")
-    if head_sha not in {str(c.get("sha")) for c in commits if isinstance(c, dict)}:
+    # The commit list is the ordinary evidence that this run reviewed this pull request, and a
+    # branch rewritten after the review is the case where it is not there to give. The head SHA
+    # stays the identity of the tree the run read and is what the fingerprint hashes, so the row
+    # survives the rewrite on the branch's evidence instead — and the log records which of the two
+    # answered, because a row whose head the pull request no longer lists is a row a reader will
+    # come back to.
+    if head_sha in {str(c.get("sha")) for c in commits if isinstance(c, dict)}:
+        out.head_rebased_away = False
+    elif ci_row.head_belongs_to(run, pull_json):
+        out.head_rebased_away = True
+    else:
         return out.no_row("head-not-in-pr",
-                          f"`{head_sha}` is not a commit of pull request {pull}")
+                          f"`{head_sha}` is not a commit of pull request {pull}, and the run's "
+                          f"branch is not that pull request's")
 
     jobs = fetcher.get(f"repos/{repo}/actions/runs/{entry['workflow_run_id']}/jobs?per_page=100")
     jobs = None if absent(jobs) else jobs
@@ -468,11 +483,20 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
     if unresolved:
         return out.no_row("l1-unresolved",
                           f"the run reports no conclusion for {', '.join(unresolved)}")
+    # The caller's own text, handed to the prompt whole. A template of the earlier generation
+    # substitutes it directly and one of the later substitutes the translating step's output
+    # instead, so both are supplied and the template decides which it asks for.
+    l1_input = ci_row.l1_results_input(caller, conclusions, REVIEW_WORKFLOW)
+    if l1_input is None:
+        return out.no_row("l1-unresolved",
+                          "the caller's `l1-results` names a job the run reports no conclusion "
+                          "for, so the text the prompt carried is not established")
     substitutions = {
         "${{ github.event.pull_request.number }}": pull,
         "${{ github.repository }}": repo,
         "${{ steps.gates.outputs.checks_run }}": ci_row.checks_run_json(
             {check_name: conclusions[job] for check_name, job in mapping.items()}),
+        "${{ inputs.l1-results }}": l1_input,
         "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}":
             inputs.get("repo-routine") or "(none)",
         "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}":
@@ -526,8 +550,6 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
                           "the checkout pins no `exeris-agents` bundle, so the rules the run was "
                           "subject to are not established")
 
-    pull_json = fetcher.get(f"repos/{repo}/pulls/{pull}")
-    pull_json = None if absent(pull_json) else pull_json
     scope = ci_row.scope_from_body((pull_json or {}).get("body"))
     if scope is None:
         return out.no_row("scope-unparsed",
@@ -700,6 +722,7 @@ def log_line(outcome: Outcome) -> dict:
         "started_at_coarse": outcome.started_at_coarse,
         "permission_denial_mismatch": outcome.denial_mismatch,
         "surface_writes_nothing": outcome.surface_writes_nothing,
+        "head_rebased_away": outcome.head_rebased_away,
     }
 
 

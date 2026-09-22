@@ -25,7 +25,7 @@ after it:
     cases below assert the reason is about the right thing, not the exact wording.
   * `ci_row.render_prompt(template, subs)` takes the workflow file's whole text and a mapping whose
     keys are the substitution expressions as they are written in it, `${{ github.repository }}` and
-    the other four.
+    the other five.
   * `ci_row.refuse_publisher(row)` raises on a row that puts an organisation App's name in `agent.*`
     and returns on one that puts it in `execution.principal`.
   * The pre-write validator is reached through the module-level name `tools.derive_ci_rows.check`,
@@ -86,6 +86,10 @@ SECOND_MODEL = "claude-haiku-4-5-20251001"
 CLIENT_VERSION = "2.1.274"
 
 DOCS_REVIEW = "guardrails-org/.github/workflows/docs-review.yml"
+# The same produce job one generation earlier, when the prompt took the caller's `l1-results` input
+# directly instead of a step's translation of it. Both are served at the path and commit the run's
+# `referenced_workflows` names, because that is where a run says its review workflow was.
+DOCS_REVIEW_L1 = "guardrails-org/.github/workflows/docs-review-l1-results.yml"
 ROUTINE = "guardrails-org/docs-guardrails-review.md"
 AGENTS_MD = "repo/AGENTS.md"
 MANIFEST = "repo/.agents/manifest.yaml"
@@ -131,6 +135,44 @@ GOLDEN_PROMPT = (
 # `repo/AGENTS.md`. Computed once from the fixture bytes; a fixture edit moves it, which is the
 # point of pinning it.
 SYSTEM_PROMPT_SHA256 = "318bdb6a65f08253784342a025fba7c27b399cb106f4d5eb1b454c92a981fc3d"
+
+# What `inputs.l1-results` carried, written out rather than folded here. The caller states its gate
+# table as a folded block whose continuation lines sit one column past the block's own, so YAML
+# keeps those two line breaks and folds nothing; each `${{ needs.<id>.result }}` is then the
+# conclusion of the job the caller named beside that check. A reader that folded the breaks into
+# spaces, or left the block's lines as they stand, would state a different value here — and the
+# prompt that carries it hashes to something no runner was handed.
+L1_RESULTS_INPUT = ('{"docs-lint": "success",\n'
+                    ' "commit-lint": "success",\n'
+                    ' "pr-body-check": "failure"}')
+
+# The five expressions the earlier generation's prompt carries. Four are the later generation's;
+# the fifth is the caller's own text, in place of the translating step's output.
+SUBS_L1 = {
+    "${{ github.event.pull_request.number }}": "7",
+    "${{ github.repository }}": REPO,
+    "${{ inputs.l1-results }}": L1_RESULTS_INPUT,
+    "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}":
+        "docs/repo-review-rules.md",
+    "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}": "repo-checks.out",
+}
+
+# The golden text of that generation's prompt, and the hash over it beside the same routine and the
+# same agent file. Written out for the same reason the other golden is: a renderer that dropped the
+# two line breaks inside the substituted value would still produce sixty-four hexadecimal digits.
+GOLDEN_PROMPT_L1 = (
+    "Review pull request 7 in\n"
+    "exeris-systems/exeris-ai-execution against the routine in\n"
+    "`.guardrails/docs-guardrails-review.md`.\n"
+    "\n"
+    'L1 GATE RESULTS: {"docs-lint": "success",\n'
+    ' "commit-lint": "success",\n'
+    ' "pr-body-check": "failure"}\n'
+    "\n"
+    "REPOSITORY EXTENSION: docs/repo-review-rules.md\n"
+    "REPOSITORY CHECK OUTPUT: repo-checks.out\n"
+)
+SYSTEM_PROMPT_SHA256_L1 = "a835afcf3612a0ab89291af6d272bc24cd863b11d28f873d98382b6e7023704f"
 
 # The same hash with the third component empty. An absent `AGENTS.md` is a documented empty
 # component — one newline, not a skipped concatenation — so a repository that carries none still
@@ -435,7 +477,7 @@ def _(root):
 
 # 2 — the pull request a row is filed against.
 
-@case("2 — a name that carries no pull request, and a head that pull request does not hold, "
+@case("2 — a name that carries no pull request, and a head that belongs to another one, "
       "each yield no row")
 def _(root):
     w = World(root)
@@ -447,12 +489,12 @@ def _(root):
     # A name that resolves is not yet a pull request that holds this run. The fingerprint is over
     # (repository, pull request, head), so a head belonging to some other pull request would file
     # this run against a task it never was — and every later comparison would group it there. The
-    # pull request's own commit list is what says which, and it is checked rather than assumed.
+    # second pull request of the fixture is on a fork's branch of its own, so neither the commit
+    # list nor the branch claims this run, and both are checked rather than assumed.
     elsewhere = os.path.join(root, "elsewhere")
     os.makedirs(elsewhere)
     w2 = World(elsewhere)
-    w2.rest.bodies[f"repos/{REPO}/pulls/{PR}/commits"] = [
-        {"sha": "d" * 40, "commit": {"message": "x"}}]
+    w2.index[0]["artifact_name"] = "l2-execution-8"
     w2.build()
     _code, out = w2.run()
     assert_no_row(w2, out, "head-not-in-pr", "head")
@@ -705,7 +747,7 @@ def _(root):
 
 # 13 — a template the reconstruction cannot render exactly.
 
-@case("13 — a sixth expression in the prompt block yields no row")
+@case("13 — an expression outside the closed set yields no row")
 def _(root):
     w = World(root)
     template = fixture(DOCS_REVIEW).replace(
@@ -988,6 +1030,128 @@ def _(root):
         assert not errors, f"{name}: " + "; ".join(
             f"{list(e.path)}: {e.message}" for e in errors)
     assert validate(w.out) == [], validate(w.out)
+
+
+# 23 — a block scalar's style decides its value.
+
+@case("23 — a folded block folds, keeps the break beside a more-indented line, and is not a `|`")
+def _(root):
+    mod = ci_row()
+    text = ("with:\n"
+            "  folded: >-\n"
+            "    one\n"
+            "    two\n"
+            "\n"
+            "    four\n"
+            "  literal: |\n"
+            "    one\n"
+            "    two\n")
+
+    # Two lines at the block's own column are one line with a space between them; a blank line
+    # between them is a line break, because folding eats one break of a run and keeps the rest.
+    assert mod.folded_scalar(text, "folded") == "one two\nfour", \
+        repr(mod.folded_scalar(text, "folded"))
+    # The same lines read literally are a different string, which is why the style is not a detail
+    # of layout: reading one block under the other's rule changes the value the host built.
+    assert mod.block_scalar(text, "folded") == "one\ntwo\n\nfour\n", \
+        repr(mod.block_scalar(text, "folded"))
+    assert mod.folded_scalar(text, "literal") is None
+    assert mod.block_scalar(text, "literal") == "one\ntwo\n", \
+        repr(mod.block_scalar(text, "literal"))
+
+    # And the caller's own gate table, which is the folded block this derivation depends on. Its
+    # continuation lines are indented past the block's column, so the breaks the author wrote
+    # survive — a folder that turned them into spaces would render a prompt nobody was handed.
+    caller = mod.folded_scalar(fixture(CALLER), "l1-results")
+    assert caller == ('{"docs-lint": "${{ needs.docs.result }}",\n'
+                      ' "commit-lint": "${{ needs.commits.result }}",\n'
+                      ' "pr-body-check": "${{ needs.pr-body.result }}"}'), repr(caller)
+    assert mod.caller_inputs(fixture(CALLER))["l1-results"] == caller
+
+    # The substitution over it is the jobs' conclusions, and a job the run concluded nothing for
+    # leaves the value unestablished rather than partly rendered.
+    conclusions = {"docs": "success", "commits": "success", "pr-body": "failure"}
+    assert mod.l1_results_input(fixture(CALLER), conclusions) == L1_RESULTS_INPUT, \
+        repr(mod.l1_results_input(fixture(CALLER), conclusions))
+    assert mod.l1_results_input(fixture(CALLER), dict(conclusions, commits=None)) is None
+
+
+# 24 — the golden of the generation before the translating step.
+
+@case("24 — a prompt taking inputs.l1-results renders this exact text and hashes to this digest")
+def _(root):
+    w = World(root)
+    w.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW_L1))
+    w.build()
+    code, out = w.run()
+    assert code == 0, out
+
+    rendered = ci_row().render_prompt(fixture(DOCS_REVIEW_L1), SUBS_L1)
+    assert rendered == GOLDEN_PROMPT_L1, repr(rendered)
+
+    row = w.row()
+    assert row["agent"]["system_prompt_sha256"] == SYSTEM_PROMPT_SHA256_L1, row["agent"]
+    # A different template is a different prompt is a different hash. The two generations reviewed
+    # the same tree under the same routine, and a producer that collapsed them would say the
+    # instructions were the same when the text was not.
+    assert row["agent"]["system_prompt_sha256"] != SYSTEM_PROMPT_SHA256, row["agent"]
+    assert validate(w.out) == [], validate(w.out)
+
+    # A job the run reports no conclusion for costs the row rather than rendering a hole in the
+    # prompt, on this template as on the other.
+    unresolved = os.path.join(root, "unresolved")
+    os.makedirs(unresolved)
+    w2 = World(unresolved)
+    w2.rest.file(ORG, ".github/workflows/docs-review.yml", REF_SHA, fixture(DOCS_REVIEW_L1))
+    jobs = json.loads(json.dumps(w2.rest.bodies[f"repos/{REPO}/actions/runs/{RUN}/jobs"]))
+    jobs["jobs"] = [j for j in jobs["jobs"] if j["name"] != "commits / lint"]
+    w2.rest.bodies[f"repos/{REPO}/actions/runs/{RUN}/jobs"] = jobs
+    w2.build()
+    _code, out = w2.run()
+    assert_no_row(w2, out, "l1-unresolved", "conclusion")
+
+
+# 25 — a branch rewritten after the review.
+
+@case("25 — a head the pull request no longer lists is derivable on the branch, and flagged")
+def _(root):
+    w = World(root).build()
+    code, out = w.run()
+    assert code == 0, out
+    assert log_line(out, RUN_ID)["head_rebased_away"] is False, out
+
+    # A branch rebased or force-pushed after the review: the pull request's commit list no longer
+    # holds the tree the run read, and the run is still that pull request's run — same branch, same
+    # repository. The head SHA is the identity of the reviewed tree and is what the fingerprint
+    # hashes, so the row is derivable and says so in the log rather than quietly.
+    rebased = os.path.join(root, "rebased")
+    os.makedirs(rebased)
+    w2 = World(rebased)
+    w2.rest.bodies[f"repos/{REPO}/pulls/{PR}/commits"] = [
+        {"sha": "d" * 40, "commit": {"message": "x"}}]
+    w2.build()
+    code, out = w2.run()
+    assert code == 0, out
+    assert log_line(out, RUN_ID)["head_rebased_away"] is True, out
+    row = w2.row()
+    assert row["repository_state"]["commit"] == HEAD, row["repository_state"]
+    assert row["workload"]["fingerprint"] == FINGERPRINT, row["workload"]
+    assert validate(w2.out) == [], validate(w2.out)
+
+    # The branch is evidence only where BOTH halves of it agree. A fork carrying the same branch
+    # name is a different branch, so a run whose head repository is not the pull request's costs
+    # the row however the ref is spelt.
+    forked = os.path.join(root, "forked")
+    os.makedirs(forked)
+    w3 = World(forked)
+    run = json.loads(json.dumps(w3.rest.bodies[f"repos/{REPO}/actions/runs/{RUN}"]))
+    run["head_repository"] = {"full_name": "someone-else/exeris-ai-execution"}
+    w3.rest.bodies[f"repos/{REPO}/actions/runs/{RUN}"] = run
+    w3.rest.bodies[f"repos/{REPO}/pulls/{PR}/commits"] = [
+        {"sha": "d" * 40, "commit": {"message": "x"}}]
+    w3.build()
+    _code, out = w3.run()
+    assert_no_row(w3, out, "head-not-in-pr", "head")
 
 
 def main() -> int:

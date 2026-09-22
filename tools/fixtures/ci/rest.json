@@ -9,6 +9,9 @@
   "conclusion": "success",
   "event": "pull_request",
   "head_branch": "docs/x",
+  "head_repository": {
+   "full_name": "exeris-systems/exeris-ai-execution"
+  },
   "head_sha": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
   "id": 41000000001,
   "name": "Guardrails",
@@ -115,6 +118,9 @@
   "draft": false,
   "head": {
    "ref": "docs/x",
+   "repo": {
+    "full_name": "exeris-systems/exeris-ai-execution"
+   },
    "sha": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
   },
   "merged_at": "2026-09-17T12:00:00Z",
@@ -138,6 +144,37 @@
     "message": "x"
    },
    "sha": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+  }
+ ],
+ "repos/exeris-systems/exeris-ai-execution/pulls/8": {
+  "base": {
+   "ref": "main",
+   "sha": "9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c"
+  },
+  "body": "Motivation: x\n\nModification: x\n\nResult: x\n\n## Classification\nScope class: docs-only\nWall impact: none\nGenerated files touched: no\nTCK obligation: n/a\nCompatibility impact: none\nCross-repo impact: none\nADRs referenced: none\nEvidence state: citable\n\n## Verification\n\nx\n\nRefs: ADR-086",
+  "draft": false,
+  "head": {
+   "ref": "docs/elsewhere",
+   "repo": {
+    "full_name": "someone-else/exeris-ai-execution"
+   },
+   "sha": "b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7"
+  },
+  "merged_at": null,
+  "number": 8,
+  "state": "open",
+  "title": "docs: y",
+  "user": {
+   "login": "x-user",
+   "type": "User"
+  }
+ },
+ "repos/exeris-systems/exeris-ai-execution/pulls/8/commits": [
+  {
+   "commit": {
+    "message": "y"
+   },
+   "sha": "b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7"
   }
  ]
 }

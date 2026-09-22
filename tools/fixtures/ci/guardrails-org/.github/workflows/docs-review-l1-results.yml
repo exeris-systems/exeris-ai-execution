@@ -1,0 +1,38 @@
+# Fixture excerpt of the org's produce job as it stood before the translating step existed.
+#
+# The difference from `docs-review.yml` is the whole of what this fixture is for: the prompt takes
+# the caller's `l1-results` input directly, so the text the runner was handed is the caller's folded
+# block with each `${{ needs.<id>.result }}` replaced by what that job concluded — and there is no
+# `gates` step, because nothing is translating anything. Everything else is held identical so that a
+# case comparing the two prompts is comparing that one substitution.
+on:
+  workflow_call:
+    inputs:
+      l1-results:
+        type: string
+        default: ''
+      repo-routine:
+        type: string
+        default: ''
+      repo-checks:
+        type: string
+        default: ''
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs and hygiene review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
+          prompt: |
+            Review pull request ${{ github.event.pull_request.number }} in
+            ${{ github.repository }} against the routine in
+            `.guardrails/docs-guardrails-review.md`.
+
+            L1 GATE RESULTS: ${{ inputs.l1-results }}
+
+            REPOSITORY EXTENSION: ${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}
+            REPOSITORY CHECK OUTPUT: ${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}

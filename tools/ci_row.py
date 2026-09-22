@@ -57,17 +57,23 @@ SCOPE_CLASSES = {
     "docs-only": "docs-only",
 }
 
-# The five expressions the review workflow's prompt template substitutes, written as the template
-# writes them. The set is closed on purpose: a template that grew a sixth substitutes something this
+# The expressions the review workflow's prompt template substitutes, written as the template writes
+# them. The set is closed on purpose: a template that grew one more substitutes something this
 # reconstruction cannot supply, and a hash over a prompt with an unrendered expression left in it is
 # a hash of a prompt no runner ever read.
 #
 # A substitution is keyed by its own expression rather than by a nickname for it, so that what
 # a caller supplies and what the template asks for are one string and cannot be paired wrongly.
+#
+# Two of them state the same fact in two workflow generations: `inputs.l1-results` is the caller's
+# own text handed to the prompt whole, and `steps.gates.outputs.checks_run` is that text after a
+# translating step was put between them. A template carries one or the other, and the reconstruction
+# supplies both so that the generation a run belongs to is the template's to decide.
 PROMPT_SUBSTITUTIONS = (
     "${{ github.event.pull_request.number }}",
     "${{ github.repository }}",
     "${{ steps.gates.outputs.checks_run }}",
+    "${{ inputs.l1-results }}",
     "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}",
     "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}",
 )
@@ -76,6 +82,11 @@ EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 ARTIFACT_NAME = re.compile(r"^l2-execution-(\d+)$")
 NEEDS_RESULT = re.compile(
     r'"([^"]+)"\s*:\s*"\$\{\{\s*needs\.([A-Za-z0-9_.-]+)\.result\s*\}\}"')
+# The same expression read for the job alone, without the check name a caller writes beside it. The
+# two patterns are not one: a check name is a claim about what a gate is called and only the pairs
+# carry it, while a value substituted into the prompt is owed for every `needs.<id>.result` in the
+# text, including one no pair names.
+NEEDS_EXPRESSION = re.compile(r"\$\{\{\s*needs\.([A-Za-z0-9_.-]+)\.result\s*\}\}")
 
 # The publication's own header and its own sentence, read exactly as `publish_verdict.py` writes
 # them. The marker carries the commit the verdict covers, which is the whole of why it can be
@@ -326,19 +337,16 @@ def accounting_mode(api_key_source: object) -> str | None:
 # --------------------------------------------------------------------------------------------
 
 
-def block_scalar(text: str, key: str) -> str | None:
-    """The raw body of `<key>:`'s block scalar, dedented to column zero, or None where none.
+def _block_body(text: str, key: str, styles: str) -> tuple[list[str], str] | None:
+    """`<key>:`'s block-scalar lines as written, with its chomping indicator, or None where none.
 
-    It does not fold. No derivation here needs a `>` block's folded value — `render_prompt` reads a
-    `|` block, whose lines are its value, and the caller's `l1-results` block is read for the pairs
-    it names rather than for its text — and a half-implemented folding would be a silent difference
-    between the string this reconstructs and the string the runner was handed.
-
-    Trailing blank lines are dropped and the body ends in exactly one newline, which is what both
-    styles do under the default clip chomping these workflows use.
+    The body is taken by indentation, which is what a block scalar's extent is: every line more
+    indented than the key, up to the first that is not. `styles` is the opener this accepts, so that
+    a reader asking for a folded block is not handed a literal one — the two have different values
+    for the same lines, and a reader that could not tell would return one under the other's name.
     """
     lines = text.splitlines()
-    opener = re.compile(rf"^(\s*){re.escape(key)}:\s*[|>][-+]?\s*$")
+    opener = re.compile(rf"^(\s*){re.escape(key)}:\s*([{styles}])([-+]?)\s*$")
     for index, line in enumerate(lines):
         found = opener.match(line)
         if not found:
@@ -349,13 +357,96 @@ def block_scalar(text: str, key: str) -> str | None:
             if candidate.strip() and len(candidate) - len(candidate.lstrip()) <= parent:
                 break
             body.append(candidate)
-        while body and not body[-1].strip():
-            body.pop()
-        if not body:
-            return ""
-        indent = min(len(b) - len(b.lstrip()) for b in body if b.strip())
-        return "\n".join(b[indent:] if b.strip() else "" for b in body) + "\n"
+        return body, found.group(3)
     return None
+
+
+def block_scalar(text: str, key: str) -> str | None:
+    """The raw body of `<key>:`'s block scalar, dedented to column zero, or None where none.
+
+    It does not fold, and it is read by the two places whose value is its lines as they stand: the
+    `prompt: |` block the runner was handed, and the `claude_args: |` block the allow-list is split
+    out of. A `>` block's value is not its lines — `folded_scalar` is what states that one — and the
+    two are kept apart because a folded value read literally is a different string from the one the
+    host built, and every hash over it is a hash of a prompt nobody sent.
+
+    Trailing blank lines are dropped and the body ends in exactly one newline, which is what both
+    styles do under the default clip chomping these workflows use.
+    """
+    found = _block_body(text, key, "|>")
+    if found is None:
+        return None
+    body = list(found[0])
+    while body and not body[-1].strip():
+        body.pop()
+    if not body:
+        return ""
+    indent = min(len(b) - len(b.lstrip()) for b in body if b.strip())
+    return "\n".join(b[indent:] if b.strip() else "" for b in body) + "\n"
+
+
+def folded_scalar(text: str, key: str) -> str | None:
+    """The VALUE of `<key>:`'s folded block scalar — `>`, `>-` or `>+` — or None where none.
+
+    Folding is not a convenience of layout: it decides the string, so a reconstruction that skipped
+    it would restate a caller's input as something the host never built. YAML's rule has three parts
+    and all three are load-bearing here:
+
+      * a line break between two lines at the block's own indentation becomes one space;
+      * a line break beside a MORE-indented line stays a line break, so a continuation the author
+        aligned under an opening brace keeps the newline the author put there;
+      * a run of blank lines loses the one break folding would have eaten and keeps the rest.
+
+    The chomping indicator says what becomes of the end: `-` strips every trailing line break, `+`
+    keeps them all, and the default keeps exactly one.
+
+    None where the key carries no folded block at all — a literal `|` block or a plain scalar is
+    somebody else's reading, and returning one of those from here would say the host folded
+    something it did not.
+    """
+    found = _block_body(text, key, ">")
+    if found is None:
+        return None
+    body, chomp = found
+    trailing = 0
+    while body and not body[-1].strip():
+        body.pop()
+        trailing += 1
+    if not body:
+        return "" if chomp == "-" else "\n" * (trailing if chomp == "+" else 0)
+    indent = min(len(b) - len(b.lstrip()) for b in body if b.strip())
+    lines = [b[indent:] if b.strip() else "" for b in body]
+
+    # Each content line with the number of blank lines standing before it, because folding is a
+    # rule about what separates two lines and not about either line on its own.
+    segments: list[tuple[int, str]] = []
+    blanks = 0
+    for line in lines:
+        if line == "":
+            blanks += 1
+            continue
+        segments.append((blanks, line))
+        blanks = 0
+
+    out: list[str] = []
+    for position, (before, line) in enumerate(segments):
+        if position == 0:
+            out.append("\n" * before)
+        else:
+            previous = segments[position - 1][1]
+            if previous.startswith((" ", "\t")) or line.startswith((" ", "\t")):
+                out.append("\n" * (before + 1))
+            elif before == 0:
+                out.append(" ")
+            else:
+                out.append("\n" * before)
+        out.append(line)
+    value = "".join(out)
+    if chomp == "-":
+        return value
+    if chomp == "+":
+        return value + "\n" + "\n" * trailing
+    return value + "\n"
 
 
 def expression_key(text: str) -> str:
@@ -630,11 +721,50 @@ def caller_inputs(caller_yaml: str, workflow: str = "docs-review.yml") -> dict |
                 continue
             key, value = pair.group(1), pair.group(2)
             if re.fullmatch(r"[|>][-+]?", value):
-                out[key] = block_scalar("\n".join(body[offset:]), key) or ""
+                # A block's value is its style's: a `|` block is its lines, a `>` block is those
+                # lines folded. An input read under the wrong one is a different string from the
+                # one the called workflow received, and this mapping is where the prompt's inputs
+                # come from.
+                held = "\n".join(body[offset:])
+                out[key] = (folded_scalar(held, key) if value.startswith(">")
+                            else block_scalar(held, key)) or ""
             else:
                 out[key] = value.strip("\"'")
         return out
     return {} if calls else None
+
+
+def l1_results_input(caller_yaml: str, conclusions: dict,
+                     workflow: str = "docs-review.yml") -> str | None:
+    """The value `inputs.l1-results` carried into the review, or None where it is not established.
+
+    Two readings compose here, in the host's own order. YAML settles the scalar's text first — the
+    caller writes its gate table as a folded block, and folding is what decides which of its line
+    breaks survive — and only then does the expression language replace each
+    `${{ needs.<id>.result }}` with what that job concluded. Folding after substituting would be a
+    different string wherever a conclusion changed a line's length, and not folding at all is a
+    different string always.
+
+    A caller that passes the input nowhere gets the empty text the called workflow declares as its
+    default, which is a value and not a gap. A caller that names a job the run reports no conclusion
+    for gets None: the text is then unrecoverable, and §C.14's rule is that the row is given up
+    rather than rendered around the hole.
+    """
+    inputs = caller_inputs(caller_yaml, workflow) or {}
+    text = inputs.get("l1-results")
+    if text is None:
+        return ""
+    missing: list[str] = []
+
+    def one(match: re.Match) -> str:
+        value = conclusions.get(match.group(1))
+        if value is None:
+            missing.append(match.group(1))
+            return ""
+        return str(value)
+
+    rendered = NEEDS_EXPRESSION.sub(one, text)
+    return None if missing else rendered
 
 
 # --------------------------------------------------------------------------------------------
@@ -672,6 +802,31 @@ def fingerprint_ci(repo: str, pr: object, head_sha: str) -> str:
     goes, the key comes back.
     """
     return "ci:" + hashlib.sha256(f"{repo}\n{pr}\n{head_sha}\n".encode("utf-8")).hexdigest()
+
+
+def head_belongs_to(run_json: dict | None, pull_json: dict | None) -> bool:
+    """Whether a run whose head the pull request does not list is that pull request's all the same.
+
+    A branch rebased or force-pushed after a review leaves the reviewed commit off the pull
+    request's commit list while the pull request goes on being the same pull request on the same
+    branch. The run's `head_sha` is the identity of the tree that was reviewed and is what the
+    fingerprint hashes, so the rewrite does not unmake the measurement — but the row is owed
+    evidence that the run belongs where it is about to be filed, and the evidence is the branch.
+
+    Both halves, or neither. A ref name is unique only inside one repository, so a fork that
+    happens to carry the same branch name would otherwise file its runs against the upstream pull
+    request, and every comparison would group them there.
+    """
+    if not isinstance(run_json, dict) or not isinstance(pull_json, dict):
+        return False
+    head = pull_json.get("head")
+    if not isinstance(head, dict):
+        return False
+    branch = str(run_json.get("head_branch") or "")
+    where = str((run_json.get("head_repository") or {}).get("full_name") or "")
+    return bool(branch) and bool(where) \
+        and branch == str(head.get("ref") or "") \
+        and where == str((head.get("repo") or {}).get("full_name") or "")
 
 
 def scope_from_body(body: str | None) -> str | None:
