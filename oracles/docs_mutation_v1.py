@@ -53,6 +53,7 @@ from typing import Callable
 from . import FALSE_DONE, TRUE_DONE, UNKNOWN
 from .docs_guardrails import corpus as documentation_corpus
 from .docs_guardrails import default_agents_tools, default_guardrails, judge
+from .docs_guardrails import existing_directory, existing_file
 
 SUITE = "docs-mutation-v1"
 # A record states a decision as of its own date and cannot drift, so the shared taxonomy asks
@@ -332,6 +333,11 @@ def _repository(path: str) -> str:
     return "/".join(parts[-2:]) if len(parts) >= 2 else url
 
 
+#: What a ref may be spelt as before it reaches git: a name, never an option. The first character
+#: is a letter or digit so that nothing here starts with the dash an option starts with.
+REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+
+
 def _export(corpus_path: str, ref: str, into: str) -> str:
     """A clean copy of the corpus at `ref`, and the commit it resolved to.
 
@@ -340,6 +346,8 @@ def _export(corpus_path: str, ref: str, into: str) -> str:
     `HEAD` for a checkout that has no remote-tracking branch — a shallow CI checkout is one — and
     the commit recorded is whichever was actually exported.
     """
+    if not REF.fullmatch(ref):
+        raise MutationError(f"{ref!r} is not a ref this suite exports")
     commit = ""
     for candidate in (ref, "HEAD"):
         commit = _git(corpus_path, "rev-parse", "--verify", f"{candidate}^{{commit}}")
@@ -471,12 +479,13 @@ def _table(result: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--corpus", required=True, help="a checkout of the corpus, read and not written")
+    ap.add_argument("--corpus", required=True, type=existing_directory,
+                    help="a checkout of the corpus, read and not written")
     ap.add_argument("--out", required=True, help="where the published result is written")
     ap.add_argument("--ref", default="origin/main", help="the ref the clean copy is exported from")
-    ap.add_argument("--guardrails", default=None)
-    ap.add_argument("--agents-tools", default=None)
-    ap.add_argument("--index", default=None)
+    ap.add_argument("--guardrails", type=existing_directory, default=None)
+    ap.add_argument("--agents-tools", type=existing_directory, default=None)
+    ap.add_argument("--index", type=existing_file, default=None)
     ap.add_argument("--check", action="store_true",
                     help="compare with the published file instead of writing it")
     a = ap.parse_args(argv)

@@ -76,6 +76,28 @@ _SIBLINGS = os.path.dirname(_REPO)
 # --------------------------------------------------------------------------------------------
 
 
+def existing_directory(value: str) -> str:
+    """An `argparse` `type=` admitting only a directory already on disk, as its real path.
+
+    A directory this oracle is handed rather than one it creates is resolved once, at the boundary,
+    to the real path its symlinks point at — so every path built under it afterwards is checked
+    against the same tree a listing of it would show, not against a spelling that a link could
+    still lead somewhere else from.
+    """
+    resolved = os.path.realpath(value)
+    if not os.path.isdir(resolved):
+        raise argparse.ArgumentTypeError(f"{value!r} is not a directory")
+    return resolved
+
+
+def existing_file(value: str) -> str:
+    """An `argparse` `type=` admitting only a file already on disk, as its real path."""
+    resolved = os.path.realpath(value)
+    if not os.path.isfile(resolved):
+        raise argparse.ArgumentTypeError(f"{value!r} is not a file")
+    return resolved
+
+
 def _listed_child(directory: str, name: str) -> str | None:
     """`name`, joined onto `directory`, only once a listing of `directory` has named it.
 
@@ -107,7 +129,10 @@ def listed_path(root: str, *parts: str) -> str | None:
         cur = _listed_child(cur, part)
         if cur is None:
             return None
-    return cur
+    real, top = os.path.realpath(cur), os.path.realpath(root)
+    if os.path.commonprefix((real, top)) != top or not real.startswith(top + os.sep):
+        return None
+    return real
 
 
 def _sibling(name: str, env: str) -> str:
@@ -432,10 +457,12 @@ def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | N
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("checkout", help="the checkout to judge")
-    ap.add_argument("--guardrails", default=None, help="the shared guardrail checkout")
-    ap.add_argument("--agents-tools", default=None, help="the agent bundle's tools/ directory")
-    ap.add_argument("--index", default=None,
+    ap.add_argument("checkout", type=existing_directory, help="the checkout to judge")
+    ap.add_argument("--guardrails", type=existing_directory, default=None,
+                    help="the shared guardrail checkout")
+    ap.add_argument("--agents-tools", type=existing_directory, default=None,
+                    help="the agent bundle's tools/ directory")
+    ap.add_argument("--index", type=existing_file, default=None,
                     help="the central ADR registry, for a checkout that is not the registry")
     a = ap.parse_args(argv)
     print(judge(a.checkout, guardrails=a.guardrails, agents_tools=a.agents_tools,
