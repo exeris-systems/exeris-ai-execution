@@ -240,7 +240,8 @@ def main() -> int:
         except AssertionError as exc:
             failures += 1
             print(f"::error title=oracle_suite::{name}: {exc}")
-        except Exception as exc:                       # noqa: BLE001 - reported, not hidden
+        except Exception as exc:  # noqa: BLE001
+            # Reported, not hidden: a case that raises is a failure with the exception as detail.
             failures += 1
             print(f"::error title=oracle_suite::{name}: {type(exc).__name__}: {exc}")
     print(f"oracle_suite: ran {len(CASES)} cases, {failures} failures")

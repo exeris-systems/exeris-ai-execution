@@ -56,6 +56,11 @@ ORACLE_ID = "docs-guardrails"
 UNPINNED = "unpinned"
 BUNDLE = "exeris-agents"
 
+#: What a path may be spelt as before it reaches a checker's command line: absolute, and made of
+#: the characters a path in a checkout is made of. A path that resolves to anything else is not
+#: one this oracle hands to a subprocess, whatever tree it was found in.
+PATH_GRAMMAR = re.compile(r"/[A-Za-z0-9._+@-]+(?:/[A-Za-z0-9._+@-]+)*")
+
 #: Why `corpus` found nothing where the checkout is the reason. Named, because it is the one empty
 #: result that is a fact about the tree rather than about the instrument, and composition treats
 #: the two differently.
@@ -131,6 +136,8 @@ def listed_path(root: str, *parts: str) -> str | None:
             return None
     real, top = os.path.realpath(cur), os.path.realpath(root)
     if os.path.commonprefix((real, top)) != top or not real.startswith(top + os.sep):
+        return None
+    if not PATH_GRAMMAR.fullmatch(real):
         return None
     return real
 
@@ -259,7 +266,9 @@ def _verdict(check: str, proc: subprocess.CompletedProcess) -> Gate:
                 available=False)
 
 
-_EXCLUDE = re.compile(r"^\s+exclude:\s*(?:\"([^\"]*)\"|'([^']*)'|(\S[^#]*?))\s*$")
+# The bare form takes everything up to a comment and is trimmed afterwards, so that no two parts of
+# the pattern can claim the same trailing blank.
+_EXCLUDE = re.compile(r"^\s+exclude:\s*(?:\"([^\"]*)\"|'([^']*)'|([^#\s][^#]*))")
 
 
 def declared_exclusions(checkout: str) -> str:
@@ -439,6 +448,8 @@ def index_within(index: str | None, checkout: str, guardrails: str) -> str | Non
         return None
     real = os.path.realpath(index)
     if not os.path.isfile(real):
+        return None
+    if not PATH_GRAMMAR.fullmatch(real) or os.path.basename(real) != "adr-index.md":
         return None
     roots = (checkout, os.path.dirname(guardrails.rstrip(os.sep)), os.path.realpath(os.getcwd()))
     for root in roots:
