@@ -1,0 +1,9 @@
+# Fixture excerpt: the bundle pin is the only key the deriver reads.
+version: 2
+repository: exeris-ai-execution
+
+imports:
+  - bundle: exeris-agents
+    version: 2.1.0
+    ref: 0000000000000000000000000000000000000000
+    sha256: sha256:0000000000000000000000000000000000000000000000000000000000000000

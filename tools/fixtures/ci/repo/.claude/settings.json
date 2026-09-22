@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/runner/work/**)"
+    ],
+    "deny": [
+      "Bash(rm:*)"
+    ]
+  }
+}
