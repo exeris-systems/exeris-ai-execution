@@ -36,6 +36,7 @@ after it:
     producer that called the validator some other way would pass the case without running it.
 """
 
+import argparse
 import base64
 import hashlib
 import importlib
@@ -87,17 +88,20 @@ MODEL = "claude-sonnet-5"
 SECOND_MODEL = "claude-haiku-4-5-20251001"
 CLIENT_VERSION = "2.1.274"
 
-DOCS_REVIEW = "guardrails-org/.github/workflows/docs-review.yml"
+# On disk under `workflows/`, not `.github/workflows/` — these are fixture bytes served through the
+# fake host at whatever REST path a case registers them under, never read from disk by that path,
+# and a `.github/workflows/` fixture path is a workflow GitHub's own Actions would pick up.
+DOCS_REVIEW = "guardrails-org/workflows/docs-review.yml"
 # The same produce job one generation earlier, when the prompt took the caller's `l1-results` input
 # directly instead of a step's translation of it. Both are served at the path and commit the run's
 # `referenced_workflows` names, because that is where a run says its review workflow was.
-DOCS_REVIEW_L1 = "guardrails-org/.github/workflows/docs-review-l1-results.yml"
+DOCS_REVIEW_L1 = "guardrails-org/workflows/docs-review-l1-results.yml"
 # The same produce job one generation later, where the prompt is rendered once into a file and the
 # action is handed the string through a step output, and the allow-list is spent through the job's
 # own `env:` rather than written on the launch line. Both moves exist so that the job which ran the
 # model can export a hash over what it actually handed over; a reconstruction that could not read
 # either spelling would yield no row for exactly the runs whose hash is checkable against its own.
-DOCS_REVIEW_RENDERED = "guardrails-org/.github/workflows/docs-review-rendered.yml"
+DOCS_REVIEW_RENDERED = "guardrails-org/workflows/docs-review-rendered.yml"
 ROUTINE = "guardrails-org/docs-guardrails-review.md"
 AGENTS_MD = "repo/AGENTS.md"
 MANIFEST = "repo/.agents/manifest.yaml"
@@ -1277,6 +1281,67 @@ def _(root):
     w3.build()
     _code, out = w3.run()
     assert_no_row(w3, out, "template", "unsupported", "here-document")
+
+
+# 28 — a directory argument answers for itself before anything is joined onto it.
+
+@case("28 — existing_directory refuses a path that is not there, and resolves one that is")
+def _(root):
+    mod = importlib.import_module("tools.derive_ci_rows")
+    missing = os.path.join(root, "does-not-exist")
+    try:
+        mod.existing_directory(missing)
+    except argparse.ArgumentTypeError:
+        pass
+    else:
+        raise AssertionError(f"`{missing}` does not exist and was accepted as a directory")
+
+    # A directory that is there resolves to its real path — the root every later `inside()` check
+    # is run against.
+    assert mod.existing_directory(root) == os.path.realpath(root)
+
+    # `--private-out`'s default: the empty string names "not given", not a directory to check.
+    assert mod.optional_existing_directory("") == ""
+    try:
+        mod.optional_existing_directory(missing)
+    except argparse.ArgumentTypeError:
+        pass
+    else:
+        raise AssertionError(f"`{missing}` is not the empty string and is not a directory either")
+
+
+# 29 — an index entry is a path this process did not choose.
+
+@case("29 — an index entry naming a path outside the streams root yields no row, by that name")
+def _(root):
+    w = World(root)
+    w.index[0]["path"] = "../x"
+    w.build()
+    _code, out = w.run()
+    assert_no_row(w, out, "stream-path-escapes")
+
+
+# 30 — a cache key is built from a REST path, not chosen by this process either.
+
+@case("30 — a cache key stays under the cache directory, whatever the REST path looks like")
+def _(root):
+    mod = importlib.import_module("tools.derive_ci_rows")
+    cache = os.path.join(root, "cache")
+    os.makedirs(cache)
+    fetcher = mod.Fetcher(cache)
+    real_cache = os.path.realpath(cache)
+
+    # None of these is a path `key()` could turn into a `/` — it maps every character outside
+    # `[A-Za-z0-9._-]` to `_` — so every one of them lands under the cache directory rather than
+    # raising, and the case checks that landing spot rather than assuming it.
+    for path in ("repos/x/y", "../../../etc/passwd", "a/../../../b",
+                 "repos/x/contents/..%2F..%2Fsecret?ref=main"):
+        try:
+            where = fetcher.cache_path(path)
+        except mod.FetchError:
+            continue
+        common = os.path.commonpath([real_cache, os.path.realpath(where)])
+        assert common == real_cache, (path, where)
 
 
 def main() -> int:

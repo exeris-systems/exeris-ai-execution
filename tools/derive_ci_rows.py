@@ -122,6 +122,47 @@ def absent(body: object) -> bool:
     return isinstance(body, dict) and str(body.get("status")) == "404"
 
 
+# --------------------------------------------------------------------------------------------
+# Where a directory argument is allowed to be, and what is allowed to land under it.
+# --------------------------------------------------------------------------------------------
+
+
+def existing_directory(value: str) -> str:
+    """An `argparse` `type=` admitting only a directory already on disk.
+
+    A directory this producer is handed rather than one it creates is resolved once, at the
+    boundary, to the real path its symlinks point at — so every path built under it afterward is
+    checked against the same tree a listing of it would show, not against a spelling that a link
+    could still lead somewhere else from.
+    """
+    resolved = os.path.realpath(value)
+    if not os.path.isdir(resolved):
+        raise argparse.ArgumentTypeError(f"{value!r} is not a directory")
+    return resolved
+
+
+def optional_existing_directory(value: str) -> str:
+    """`existing_directory`, except the empty string names "not given" rather than a directory."""
+    return "" if value == "" else existing_directory(value)
+
+
+def inside(root: str, *parts: str) -> str:
+    """Join `parts` under `root` and return the real path, refusing one that would land outside it.
+
+    `root` is resolved the way `existing_directory` resolves a command-line argument, so a root
+    that is itself a symlink is checked against the same tree the containment test runs over.
+    `parts` may hold text an index entry or a REST answer supplied — this process did not choose
+    it — and the test is over where the joined path actually resolves to, which is what a `..`
+    component or a symlink crossing the root both come down to, rather than over whether `..`
+    appears in the spelling.
+    """
+    root = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.join(root, *parts))
+    if os.path.commonpath([root, candidate]) != root:
+        raise ValueError(f"{os.path.join(*parts)!r} is not under {root!r}")
+    return candidate
+
+
 def decode_stream(text: str) -> list:
     """Every JSON document in `gh api`'s output, which is one per page under `--paginate`."""
     decoder = json.JSONDecoder()
@@ -192,6 +233,19 @@ class Fetcher:
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", path)[:80]
         return f"{safe}-{ci_row.stream_digest(path.encode('utf-8'))[:16]}.json"
 
+    def cache_path(self, path: str) -> str:
+        """Where `path`'s cached answer lives on disk.
+
+        `key` never emits a `/`, so this always lands inside `cache_dir` for any REST path — the
+        containment check runs anyway, because that guarantee lives in `key`'s regex and not in
+        this function, and a `FetchError` is the same answer this producer gives any other call
+        it cannot complete.
+        """
+        try:
+            return inside(self.cache_dir, self.key(path))
+        except ValueError as exc:
+            raise FetchError(f"{path}: cache key escapes the cache directory ({exc})") from exc
+
     def fetch(self, path: str, paginate: bool) -> dict:
         """The one call that leaves this process."""
         self.calls += 1
@@ -211,7 +265,7 @@ class Fetcher:
 
     def get(self, path: str) -> object:
         """The body for `path`, `ABSENT` where the host has nothing there."""
-        where = os.path.join(self.cache_dir, self.key(path))
+        where = self.cache_path(path)
         answer = None
         if os.path.exists(where):
             try:
@@ -344,7 +398,10 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
                   repo=str(entry.get("repo")), artifact_id=entry.get("artifact_id"),
                   workflow_run_id=entry.get("workflow_run_id"))
 
-    where = os.path.join(args.streams, str(entry.get("path") or ""))
+    try:
+        where = inside(args.streams, str(entry.get("path") or ""))
+    except ValueError as exc:
+        return out.no_row("stream-path-escapes", str(exc))
     try:
         with open(where, "rb") as handle:
             data = handle.read()
@@ -624,7 +681,7 @@ def row_path(root: str, outcome: Outcome) -> str:
     sits inside a public `inbox/` on the way.
     """
     date = str(outcome.row["started_at"])[:10]
-    return os.path.join(root, "inbox", date, "runs", outcome.run_id + ".json")
+    return inside(root, "inbox", date, "runs", outcome.run_id + ".json")
 
 
 def validate_batch(outcomes: list[Outcome], schemas: str, declared: str) -> dict:
@@ -790,9 +847,14 @@ def summary(outcomes: list[Outcome], args, capture_version: str) -> str:
 
 
 def streams_head(clone: str) -> str | None:
-    """What commit the streams clone is on, or None where that cannot be established."""
+    """What commit the streams clone is on, or None where that cannot be established.
+
+    `clone` is expected to already be `existing_directory`'s output, so the one thing about this
+    command this process has not itself verified is the revision — which is what `--verify` asks
+    git to check rather than print a hash for the wrong reason if `HEAD` does not resolve.
+    """
     try:
-        done = subprocess.run(["git", "-C", clone, "rev-parse", "HEAD"],
+        done = subprocess.run(["git", "-C", clone, "rev-parse", "--verify", "HEAD"],
                               capture_output=True, text=True, check=False)
     except OSError:
         return None
@@ -814,15 +876,15 @@ def derive(index: list, fetcher: Fetcher, args, capture_version: str) -> list[Ou
 
 def main(argv: list[str] | None = None, fetcher=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--streams", required=True,
+    parser.add_argument("--streams", required=True, type=existing_directory,
                         help="a clone of the streams repository, holding `index.json`")
     parser.add_argument("--streams-commit", required=True,
                         help="the commit the clone must be on — every `event_stream.ref` names it")
-    parser.add_argument("--out", required=True,
+    parser.add_argument("--out", required=True, type=existing_directory,
                         help="the repository holding `inbox/` and `schemas/`")
-    parser.add_argument("--cache-dir", required=True,
+    parser.add_argument("--cache-dir", required=True, type=existing_directory,
                         help="where every `gh api` answer is kept, so a re-run makes no call")
-    parser.add_argument("--private-out", default="",
+    parser.add_argument("--private-out", default="", type=optional_existing_directory,
                         help="where a row whose repository is not public goes; without it such a "
                              "row is counted and not written")
     parser.add_argument("--only", default="",
@@ -841,11 +903,11 @@ def main(argv: list[str] | None = None, fetcher=None) -> int:
               f"does not hold the stream it was derived from")
         return 2
     try:
-        with open(os.path.join(args.out, "schemas", "VERSION"), encoding="utf-8") as handle:
+        with open(inside(args.out, "schemas", "VERSION"), encoding="utf-8") as handle:
             capture_version = handle.read().strip()
-        with open(os.path.join(args.streams, "index.json"), encoding="utf-8") as handle:
+        with open(inside(args.streams, "index.json"), encoding="utf-8") as handle:
             index = json.load(handle)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"::error::{exc}")
         return 2
 
