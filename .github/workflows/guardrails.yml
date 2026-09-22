@@ -17,21 +17,23 @@ concurrency:
   # the cancel arrived in the same second the publishing job finished.
   cancel-in-progress: ${{ !endsWith(github.actor, '[bot]') }}
 # A called workflow can only narrow the caller's permissions, never raise them, so this block must
-# be the UNION of what every job below declares. It is not a wish list and it is not a minimum:
-# omitting a permission one called workflow declares does not run that job with less, it makes the
-# whole file an invalid workflow — "requesting 'issues: read, id-token: write', but is only allowed
-# 'issues: none, id-token: none'", which is how exeris-kernel's first adoption of this file failed.
+# be the UNION of what every job below declares — except a job that carries its own `permissions:`
+# key, which replaces this workflow-level grant for that job rather than adding to it, and must then
+# restate everything it needs on its own. Omitting a permission one called workflow declares does
+# not run that job with less, it makes the whole file an invalid workflow — "requesting 'issues:
+# read, id-token: write', but is only allowed 'issues: none, id-token: none'", which is how
+# exeris-kernel's first adoption of this file failed.
 #
 # Granting them here does not widen docs-lint, commit-lint or pr-body-check: each called workflow's
-# jobs receive what its own permissions block declares, capped by this one. The last two belong to
-# docs-review — `id-token: write` for the OIDC exchange claude-code-action performs, `issues: read`
-# so the routine can see the debt issues of issue-conventions.md rule 6. Drop the `docs-review` job
-# and you may drop them with it.
+# jobs receive what its own permissions block declares, capped by this one. `id-token: write` is the
+# OIDC exchange claude-code-action performs and no job here needs it but `docs-review`, so it sits in
+# that job's own block below rather than here, where every job would otherwise receive it. `issues:
+# read` is so the routine can see the debt issues of issue-conventions.md rule 6, and stays here
+# alongside `contents` and `pull-requests` because more than one job reads them.
 permissions:
   contents: read
   pull-requests: read
   issues: read
-  id-token: write
 
 jobs:
   docs:
@@ -99,6 +101,14 @@ jobs:
   docs-review:
     needs: [docs, commits, pr-body]
     if: ${{ always() }}
+    # A job-level `permissions:` key replaces the workflow-level grant for this job rather than
+    # adding to it, so every permission this job needs is restated here: `id-token: write` is the
+    # OIDC exchange claude-code-action performs, needed by no other job in this file.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
     uses: exeris-systems/.github/.github/workflows/docs-review.yml@main
     with:
       publish: true
@@ -176,7 +186,7 @@ jobs:
       # The checkers' dependencies, not this repository's: the frontmatter check reads YAML, and
       # the agent-file check's schema half needs a validator — without it that half downgrades to a
       # syntax test and says so in a warning, which is a gate reporting less than its name.
-      - run: pip install pyyaml jsonschema
+      - run: "pip install --quiet --only-binary=:all: pyyaml==6.0.3 jsonschema==4.26.0"
       - name: The outcome rules, and what a calibration may call a pass
         run: python3 tools/oracle_suite.py
       - name: The oracle judges this checkout

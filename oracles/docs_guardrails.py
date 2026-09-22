@@ -71,6 +71,45 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SIBLINGS = os.path.dirname(_REPO)
 
 
+# --------------------------------------------------------------------------------------------
+# Where a path under a caller-supplied directory is allowed to come from.
+# --------------------------------------------------------------------------------------------
+
+
+def _listed_child(directory: str, name: str) -> str | None:
+    """`name`, joined onto `directory`, only once a listing of `directory` has named it.
+
+    A checkout, a shared guardrails clone and an agent bundle's tools directory all arrive from
+    outside this process, so a path under one of them is built from what its own listing contains
+    rather than from the directory string concatenated with a name this process already knew. None
+    where the directory cannot be listed or does not hold that name, which reads the same as the
+    name not being on disk.
+    """
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return None
+    for entry in entries:
+        if entry == name:
+            return os.path.join(directory, entry)
+    return None
+
+
+def listed_path(root: str, *parts: str) -> str | None:
+    """Join `parts` onto `root` one directory listing at a time, or None where the walk runs out.
+
+    Every step advances only onto a name the directory in fact contains, so the path this returns
+    is assembled from what `os.listdir` reported at each level rather than from the arguments as
+    given.
+    """
+    cur = root
+    for part in parts:
+        cur = _listed_child(cur, part)
+        if cur is None:
+            return None
+    return cur
+
+
 def _sibling(name: str, env: str) -> str:
     """Where a sibling checkout is, in the places it is ever on disk.
 
@@ -121,7 +160,9 @@ def bundle_version(checkout: str, bundle: str = BUNDLE) -> str:
     Block style only and scoped to `imports:`, which is how the manifest is written: a `version:`
     under any other key belongs to that key, and the manifest's own schema version is one of them.
     """
-    manifest = os.path.join(checkout, ".agents", "manifest.yaml")
+    manifest = listed_path(checkout, ".agents", "manifest.yaml")
+    if manifest is None:
+        return UNPINNED
     try:
         with open(manifest, encoding="utf-8") as fh:
             text = fh.read()
@@ -211,7 +252,9 @@ def declared_exclusions(checkout: str) -> str:
     wins: the lint is the caller's only input of this name, and a workflow that grows a second one
     is a workflow this gate would have to be told about anyway.
     """
-    path = os.path.join(checkout, ".github", "workflows", "guardrails.yml")
+    path = listed_path(checkout, ".github", "workflows", "guardrails.yml")
+    if path is None:
+        return ""
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -241,9 +284,11 @@ def corpus(checkout: str, guardrails: str, exclude: str = "") -> tuple[list[str]
     # Absolute, because every checker runs with the checkout as its working directory: a relative
     # path to a checker would be resolved against the tree being judged rather than against the
     # workspace the checker lives in.
-    script = os.path.join(os.path.abspath(guardrails), "scripts", "lint_globs.py")
-    if not os.path.isfile(script):
-        return [], f"the shared taxonomy is not on disk ({script}), so the corpus is undefined"
+    guardrails_abs = os.path.abspath(guardrails)
+    script = listed_path(guardrails_abs, "scripts", "lint_globs.py")
+    if script is None:
+        shown = os.path.join(guardrails_abs, "scripts", "lint_globs.py")
+        return [], f"the shared taxonomy is not on disk ({shown}), so the corpus is undefined"
     proc = _run([sys.executable, script, "--root", ".", "--exclude", exclude], cwd=checkout)
     if proc.returncode != 0:
         return [], f"the taxonomy did not resolve (exit {proc.returncode}): {_detail(proc)}"
@@ -271,9 +316,10 @@ def corpus(checkout: str, guardrails: str, exclude: str = "") -> tuple[list[str]
 
 
 def _frontmatter_gate(checkout: str, guardrails: str, exclude: str) -> Gate:
-    script = os.path.join(guardrails, "scripts", "frontmatter_check.py")
-    if not os.path.isfile(script):
-        return Gate("frontmatter_check", NOT_RUN, f"the checker is not on disk ({script})",
+    script = listed_path(guardrails, "scripts", "frontmatter_check.py")
+    if script is None:
+        shown = os.path.join(guardrails, "scripts", "frontmatter_check.py")
+        return Gate("frontmatter_check", NOT_RUN, f"the checker is not on disk ({shown})",
                     available=False)
     # Strict, because the oracle judges the corpus as it stands rather than the diff that produced
     # it: ramp mode answers "did this change make things worse", which is a different question and
@@ -298,9 +344,10 @@ def _registry_gate(checkout: str, guardrails: str, index: str | None) -> Gate:
     checkout with records and no index is a checkout whose records nothing checked, which is not
     the same as a checkout that has no records.
     """
-    script = os.path.join(guardrails, "scripts", "registry_check.py")
-    if not os.path.isfile(script):
-        return Gate("registry_check", NOT_RUN, f"the checker is not on disk ({script})",
+    script = listed_path(guardrails, "scripts", "registry_check.py")
+    if script is None:
+        shown = os.path.join(guardrails, "scripts", "registry_check.py")
+        return Gate("registry_check", NOT_RUN, f"the checker is not on disk ({shown})",
                     available=False)
     if os.path.isfile(os.path.join(checkout, "adr-index.md")):
         argv = [sys.executable, script, "--siblings-root",
@@ -340,9 +387,10 @@ def _agent_gates(checkout: str, agents_tools: str) -> list[Gate]:
                      available=False) for name in invocations]
     gates = []
     for name, argv in invocations.items():
-        script = os.path.join(agents_tools, argv[0])
-        if not os.path.isfile(script):
-            gates.append(Gate(name, NOT_RUN, f"the checker is not on disk ({script})",
+        script = listed_path(agents_tools, argv[0])
+        if script is None:
+            shown = os.path.join(agents_tools, argv[0])
+            gates.append(Gate(name, NOT_RUN, f"the checker is not on disk ({shown})",
                               available=False))
             continue
         gates.append(_verdict(name, _run([sys.executable, script, *argv[1:]], checkout)))
@@ -355,9 +403,16 @@ def _all_not_run(reason: str, *, available: bool = True) -> list[Gate]:
 
 def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | None = None,
           index: str | None = None) -> Judgement:
-    """Judge one checkout. The gates are run in the checkout; nothing in it is written."""
-    guardrails = os.path.abspath(guardrails or default_guardrails())
-    agents_tools = os.path.abspath(agents_tools or default_agents_tools())
+    """Judge one checkout. The gates are run in the checkout; nothing in it is written.
+
+    `checkout`, `guardrails` and `agents_tools` are resolved to real paths once, here, at the
+    boundary where they arrive from the caller: every path a gate opens under one of them is then
+    built by listing the same tree this resolution named, and every checker this run starts is run
+    inside it rather than told where it is on a command line.
+    """
+    checkout = os.path.realpath(checkout)
+    guardrails = os.path.realpath(guardrails or default_guardrails())
+    agents_tools = os.path.realpath(agents_tools or default_agents_tools())
     version = bundle_version(checkout)
     if not os.path.isdir(checkout):
         return Judgement(ORACLE_ID, version,

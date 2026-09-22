@@ -312,7 +312,13 @@ def tally(clean_ok: bool, mutants: list[dict]) -> tuple[str, str]:
 # ---------------------------------------------------------------------------------------------
 
 def _git(path: str, *args: str) -> str:
-    proc = subprocess.run(["git", "-C", path, *args], capture_output=True, text=True)
+    """One git command's stdout, run inside `path` rather than told where `path` is.
+
+    `path` becomes the process's own working directory instead of a `-C` argument, so a directory
+    this process did not choose reaches git as where it runs and never as one more thing on its
+    command line.
+    """
+    proc = subprocess.run(["git", *args], cwd=path, capture_output=True, text=True)
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
@@ -344,8 +350,8 @@ def _export(corpus_path: str, ref: str, into: str) -> str:
         raise MutationError(f"{corpus_path} is not a checkout whose {ref} resolves")
     os.makedirs(into, exist_ok=True)
     archive = os.path.join(os.path.dirname(into), "corpus.tar")
-    subprocess.run(["git", "-C", corpus_path, "archive", "--format=tar", "-o", archive, ref],
-                   check=True)
+    subprocess.run(["git", "archive", "--format=tar", "-o", archive, ref],
+                   cwd=corpus_path, check=True)
     shutil.unpack_archive(archive, into, format="tar")
     os.remove(archive)
     return commit
@@ -353,7 +359,15 @@ def _export(corpus_path: str, ref: str, into: str) -> str:
 
 def run(corpus_path: str, *, guardrails: str, agents_tools: str, index: str | None = None,
         ref: str = "origin/main") -> dict:
-    """Build the eight mutants from a clean copy, judge each, and assemble the published result."""
+    """Build the eight mutants from a clean copy, judge each, and assemble the published result.
+
+    The three directories are resolved to real paths once, here, at the boundary where they arrive
+    from the caller, so that every git command below runs inside one of them rather than being told
+    where it is on a command line.
+    """
+    corpus_path = os.path.realpath(corpus_path)
+    guardrails = os.path.realpath(guardrails)
+    agents_tools = os.path.realpath(agents_tools)
     now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     result = {
         "suite": SUITE,
@@ -426,6 +440,22 @@ def _eighth(work: str, clean: str, guardrails: str, verdict) -> dict:
             "detail": "an emptied corpus and a path that is not there"}
 
 
+def _validated_out(out: str, corpus_path: str) -> str | None:
+    """`--out`'s real path, or None where it lands outside the trees this run is allowed to touch.
+
+    `--out` is read back under `--check` and written otherwise, and the one CI job that runs this
+    suite writes it at a path relative to the checkout it runs in — under the working directory.
+    Requiring the real path to land there, or under the corpus this run judged, is exactly what
+    that use holds to, while refusing a path built to resolve anywhere else this process was not
+    told to read or write.
+    """
+    real = os.path.realpath(out)
+    for root in (os.path.realpath(os.getcwd()), os.path.realpath(corpus_path)):
+        if real == root or real.startswith(root + os.sep):
+            return real
+    return None
+
+
 def _table(result: dict) -> str:
     lines = ["| mutant | gate | expected | observed | ok |", "|--:|:--|:--|:--|:--|"]
     for row in result["mutants"]:
@@ -450,6 +480,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check", action="store_true",
                     help="compare with the published file instead of writing it")
     a = ap.parse_args(argv)
+    out = _validated_out(a.out, a.corpus)
+    if out is None:
+        print(f"::error title={SUITE}::--out ({a.out}) resolves outside the working directory "
+              f"and outside --corpus ({a.corpus}); refusing to read or write it")
+        return 2
     try:
         result = run(a.corpus, guardrails=a.guardrails or default_guardrails(),
                      agents_tools=a.agents_tools or default_agents_tools(),
@@ -460,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
     print(_table(result))
     if a.check:
         try:
-            with open(a.out, encoding="utf-8") as fh:
+            with open(out, encoding="utf-8") as fh:
                 published = json.load(fh)
         except (OSError, ValueError) as exc:
             print(f"::error title={SUITE}::no published result to check against: {exc}")
@@ -471,8 +506,8 @@ def main(argv: list[str] | None = None) -> int:
                       f"{published.get(key)!r}; this run reports {result[key]!r}")
                 return 1
     else:
-        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-        with open(a.out, "w", encoding="utf-8") as fh:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
             json.dump(result, fh, indent=2, ensure_ascii=False)
             fh.write("\n")
     return 0 if result["status"] == "pass" else 1
