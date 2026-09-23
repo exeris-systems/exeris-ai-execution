@@ -31,6 +31,9 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | `2026-09-23-harness-claude-cc-2-1-280` | 2026-09-23 | `harness-claude` | Rows written by `exeris-agent close-run` for an arm that runs Claude Code `2.1.280` against a vendor's model, headless, under the execution identity. | See *The harness fences* below. |
 | `2026-09-23-harness-claude-cc-2-1-280-w-4c856523d61d` | 2026-09-23 | `harness-claude` | The same producer and client, for an arm whose model is served on this machine from weights whose digest begins `4c856523d61d` (`gemma4:26b-a4b-it-qat` under Ollama, 128k context). | See *The harness fences* below. |
 | `2026-09-23-harness-antigravity-cc-1-2-8` | 2026-09-23 | `harness-antigravity` | Rows written by `exeris-agent close-run` for an arm that runs Antigravity `1.2.8` in its print mode, under the execution identity. | See *The harness fences* below. |
+| `2026-09-23-harness-claude-oracle3-cc-2-1-280` | 2026-09-23 | `harness-claude-oracle3` | Rows written for an arm driven by `exeris-agent drive` with up to three oracle feedback rounds, Claude Code `2.1.280` against a vendor's model. | See *The harness fences* below. |
+| `2026-09-23-harness-claude-oracle3-cc-2-1-280-w-4c856523d61d` | 2026-09-23 | `harness-claude-oracle3` | The same, for the arm serving the local weights whose digest begins `4c856523d61d`. | See *The harness fences* below. |
+| `2026-09-23-harness-antigravity-oracle3-cc-1-2-8` | 2026-09-23 | `harness-antigravity-oracle3` | The same loop for an arm running Antigravity `1.2.8`, resumed through its conversation id. | See *The harness fences* below. |
 
 ## The backfill fences
 
@@ -88,6 +91,17 @@ different surface and is why its rows sit under a different producer. The local 
 context window is part of the local arm's conditions: a window smaller than the client's own
 system prompt plus the task's reading truncates the conversation, and rows either side of a change
 to it belong on different fences.
+
+**The oracle loop.** An `-oracle<N>` producer drives the arm to an outcome rather than taking its
+first answer: after each pass the calibrated docs oracle judges the tree, and while the outcome is
+`FALSE_DONE` and fewer than `N` feedback rounds have been sent, the same session is resumed with a
+prompt made of nothing but the failing gates' names and details, verbatim. It stops at `TRUE_DONE`,
+at an outcome the oracle could not reach, or when the rounds run out. The row's cost is the whole
+session's, so a row under such a fence reads as cost to the outcome the loop ended on — ADR-086
+§E.21's primary quantity — and never sums with a single-pass row, whose cost is one attempt's.
+The oracle's prompts are the instrument speaking, not a person: they are excluded from
+`execution.human_prompts`, and the rounds actually used are kept beside the row in the run's
+staging, because the row has no field for them.
 
 ## The grammar of a fence id
 
