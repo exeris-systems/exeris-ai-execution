@@ -17,21 +17,23 @@ concurrency:
   # the cancel arrived in the same second the publishing job finished.
   cancel-in-progress: ${{ !endsWith(github.actor, '[bot]') }}
 # A called workflow can only narrow the caller's permissions, never raise them, so this block must
-# be the UNION of what every job below declares. It is not a wish list and it is not a minimum:
-# omitting a permission one called workflow declares does not run that job with less, it makes the
-# whole file an invalid workflow — "requesting 'issues: read, id-token: write', but is only allowed
-# 'issues: none, id-token: none'", which is how exeris-kernel's first adoption of this file failed.
+# be the UNION of what every job below declares — except a job that carries its own `permissions:`
+# key, which replaces this workflow-level grant for that job rather than adding to it, and must then
+# restate everything it needs on its own. Omitting a permission one called workflow declares does
+# not run that job with less, it makes the whole file an invalid workflow — "requesting 'issues:
+# read, id-token: write', but is only allowed 'issues: none, id-token: none'", which is how
+# exeris-kernel's first adoption of this file failed.
 #
 # Granting them here does not widen docs-lint, commit-lint or pr-body-check: each called workflow's
-# jobs receive what its own permissions block declares, capped by this one. The last two belong to
-# docs-review — `id-token: write` for the OIDC exchange claude-code-action performs, `issues: read`
-# so the routine can see the debt issues of issue-conventions.md rule 6. Drop the `docs-review` job
-# and you may drop them with it.
+# jobs receive what its own permissions block declares, capped by this one. `id-token: write` is the
+# OIDC exchange claude-code-action performs and no job here needs it but `docs-review`, so it sits in
+# that job's own block below rather than here, where every job would otherwise receive it. `issues:
+# read` is so the routine can see the debt issues of issue-conventions.md rule 6, and stays here
+# alongside `contents` and `pull-requests` because more than one job reads them.
 permissions:
   contents: read
   pull-requests: read
   issues: read
-  id-token: write
 
 jobs:
   docs:
@@ -99,6 +101,14 @@ jobs:
   docs-review:
     needs: [docs, commits, pr-body]
     if: ${{ always() }}
+    # A job-level `permissions:` key replaces the workflow-level grant for this job rather than
+    # adding to it, so every permission this job needs is restated here: `id-token: write` is the
+    # OIDC exchange claude-code-action performs, needed by no other job in this file.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
     uses: exeris-systems/.github/.github/workflows/docs-review.yml@main
     with:
       publish: true
@@ -121,12 +131,82 @@ jobs:
       # severity tags and verdict schema. One review, one verdict, one publisher: the
       # extension is what makes having rules of one's own stop being a reason to keep a
       # review workflow of one's own, which is the state the organisation's review replaced.
+      #
+      # `oracle_suite.py` is here and the two oracle CLIs are not, and the split is what each needs
+      # rather than what each is worth: the suite is fixtures and the standard library, while the
+      # CLIs need the shared guardrails, the agent bundle and a corpus — three checkouts this step
+      # does not have. They run in the `oracle` job below, where those exist.
       repo-routine: docs/repo-review-rules.md
-      repo-checks: python3 tools/inbox_validate_suite.py; python3 tools/inbox_validate.py --root .
+      repo-checks: python3 tools/inbox_validate_suite.py; python3 tools/inbox_validate.py --root .; python3 tools/oracle_suite.py
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       exeris_bot_app_id: ${{ secrets.EXERIS_BOT_APP_ID }}
       exeris_bot_private_key: ${{ secrets.EXERIS_BOT_PRIVATE_KEY }}
+  # The instrument's own calibration, which is a different question from every gate above. Those
+  # ask whether this pull request is sound; this asks whether the oracle that judges other
+  # repositories still catches what it claims to catch — and a calibration nobody re-runs is a
+  # number that was true once.
+  #
+  # THE SUITE RUNS HERE; THE SELF-TEST RUNS WHERE THE CORPUS IS. `tools/oracle_suite.py` needs
+  # nothing but the standard library and runs unconditionally. The mutation suite needs three
+  # checkouts this repository does not own — the shared guardrails, the agent bundle, and a
+  # documentation corpus to build mutants from — so its step is skipped where the corpus cannot be
+  # fetched, and a notice says the published calibration stood unverified by that run. Passing on
+  # an absent corpus is the eighth mutant, and it is not made acceptable by being CI's own.
+  oracle:
+    name: oracle calibration
+    runs-on: ubuntu-latest
+    env:
+      # Where this job's checkouts land. The oracle takes the same paths from its defaults on a
+      # working copy, so neither environment is the special case the other is read against.
+      EXERIS_GUARDRAILS: .guardrails
+      EXERIS_AGENTS_TOOLS: .agents-tools/tools
+    steps:
+      - uses: actions/checkout@v7
+      # NEITHER OF THE TWO BELOW IS `continue-on-error`. A gate whose checker is not on disk is
+      # unavailable, not inapplicable, so a judgement made without one of these checkouts is
+      # `UNKNOWN` by construction — and a calibration run scored in that state would be measuring
+      # what the runner failed to fetch rather than what the oracle catches.
+      - name: The shared guardrails (exeris-systems/.github)
+        uses: actions/checkout@v7
+        with: { repository: exeris-systems/.github, path: .guardrails }
+      - name: The agent bundle (exeris-systems/exeris-agents)
+        uses: actions/checkout@v7
+        with: { repository: exeris-systems/exeris-agents, path: .agents-tools }
+      # `_corpus`, and the underscore is load-bearing: the shared taxonomy treats a "_"-prefixed
+      # directory as working material rather than documentation, so another repository checked out
+      # inside this workspace is not read as this repository's corpus by the step below it.
+      - name: The corpus the mutants are built from
+        id: corpus
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with: { repository: exeris-systems/exeris-docs, path: _corpus }
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.14' }
+      # The checkers' dependencies, not this repository's: the frontmatter check reads YAML, and
+      # the agent-file check's schema half needs a validator — without it that half downgrades to a
+      # syntax test and says so in a warning, which is a gate reporting less than its name.
+      - run: "pip install --quiet --only-binary=:all: pyyaml==6.0.3 jsonschema==4.26.0"
+      - name: The outcome rules, and what a calibration may call a pass
+        run: python3 tools/oracle_suite.py
+      - name: The oracle judges this checkout
+        if: ${{ !cancelled() && steps.corpus.outcome == 'success' }}
+        # Evidence, never a gate: the CLI exits 0 whatever it finds, because a row's verdict is a
+        # row's verdict and not somebody's red build.
+        run: python3 -m oracles.docs_guardrails . --index _corpus/adr-index.md
+      - name: The mutation suite, against the published calibration
+        if: ${{ !cancelled() && steps.corpus.outcome == 'success' }}
+        # `--check` recomputes and compares instead of rewriting: CI's question is whether the
+        # published file is still true, and a job that rewrote it would answer by agreeing with
+        # itself.
+        run: |
+          python3 -m oracles.docs_mutation_v1 --corpus _corpus \
+            --out oracles/docs-guardrails/oracle-selftest.json --check
+      - name: Say so where the corpus was not available
+        if: ${{ !cancelled() && steps.corpus.outcome != 'success' }}
+        run: >-
+          echo "::notice::the corpus could not be fetched, so the mutation suite did not run here
+          and the published calibration stands unverified by this run"
   # javadoc:                    # JVM repos with a gated module only
   #   uses: exeris-systems/.github/.github/workflows/javadoc-gate.yml@main
   #   with:

@@ -29,15 +29,22 @@ here may say which model to use. Everything else in this repository follows from
   (ADR-086 §G.34) no single schema can see, `inbox_validate_suite.py` is its case suite, and
   `schema_cases.py` is the run-record schema's own case suite. Each module's docstring is the home
   for what it does and why. `.github/workflows/inbox.yml` runs all three.
+- `oracles/` — the oracle interface and the first oracle behind it. `oracles/__init__.py` owns how
+  gates compose into an outcome and nothing else does (ADR-086 §E.19); `oracles/docs_guardrails.py`
+  runs the L1 guardrail suite over a checkout and reports a judgement; `oracles/docs_mutation_v1.py`
+  is that oracle's calibration suite — the eight mutants of RFC-2026-09-08 §Testing — and publishes
+  `oracles/docs-guardrails/oracle-selftest.json`, the file a row's `oracle.calibration` quotes.
+  `tools/oracle_suite.py` holds the cases for both sets of rules.
 - `docs/` — `docs/adr/ADR-086.link.md` and `docs/adr/ADR-087.link.md` point at this layer's two
   governing decisions; `docs/repo-review-rules.md` is this repository's extension of the shared
   review routine; `docs/fences.md` and `docs/oracles.md` are the two registers a row's values
   resolve in: which fence ids exist and what each marks, and which `oracle.id` and `oracle.version`
   a producer may write today with the calibration state each carries.
 
-That is all there is today, and deliberately so: no store, no analysis, no oracle implementation,
-no router. A capture shape that has never met a real row is the thing most likely to be wrong, so
-the shapes and the tooling that reads them ship first and alone.
+That is all there is today, and deliberately so: no store, no analysis, no router. The oracle
+judges a corpus against machine-verifiable properties and says what it found; nothing here decides
+what should run next, or by what. A capture shape that has never met a real row is the thing most
+likely to be wrong, so the shapes and the tooling that reads them ship first and alone.
 
 ## The paired-run protocol
 

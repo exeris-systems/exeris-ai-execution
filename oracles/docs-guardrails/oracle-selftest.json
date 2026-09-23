@@ -1,0 +1,83 @@
+{
+  "suite": "docs-mutation-v1",
+  "run_at": "2026-09-22T21:57:38Z",
+  "status": "pass",
+  "result": "8/8",
+  "corpus": {
+    "repository": "exeris-systems/exeris-docs",
+    "commit": "2e62894cce706c6123c5ccb8d019bfcbcdcd200a"
+  },
+  "guardrails_commit": "29ca06ad118d7a7afc5ce2bc02d65fddd131e27b",
+  "agents_tools_commit": "abfdbe5336e3c29b807241b0bb00a6091cb42fea",
+  "clean_corpus": {
+    "expected": "TRUE_DONE",
+    "observed": "TRUE_DONE",
+    "ok": true
+  },
+  "mutants": [
+    {
+      "id": 1,
+      "gate": "registry_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (registry_check)",
+      "ok": true,
+      "detail": "adr/ADR-999-a-number-with-no-registry-row.md has no row in adr-index.md"
+    },
+    {
+      "id": 2,
+      "gate": "registry_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (registry_check)",
+      "ok": true,
+      "detail": "a registry row links to adr/ADR-001-cloud-native-and-agnostic-infrastructure-strategy-not-on-disk.md, which is not on disk"
+    },
+    {
+      "id": 3,
+      "gate": "agents_render_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (agents_render_check)",
+      "ok": true,
+      "detail": ".claude/agents/exeris-docs-adr-registry-keeper.md differs from what the renderer emits"
+    },
+    {
+      "id": 4,
+      "gate": "agents_bundle_verify",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (agents_file_check+agents_bundle_verify)",
+      "ok": true,
+      "detail": ".agents/vendor/exeris-agents-2.1.0/policies/agent-safety-and-autonomy.md no longer matches the pinned digest"
+    },
+    {
+      "id": 5,
+      "gate": "frontmatter_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (frontmatter_check)",
+      "ok": true,
+      "detail": "adr/ADR-001-cloud-native-and-agnostic-infrastructure-strategy.md carries the deprecated visibility value"
+    },
+    {
+      "id": 6,
+      "gate": "frontmatter_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (frontmatter_check)",
+      "ok": true,
+      "detail": "b2b-technical-whitepaper.md is narrative and declares no last-verified"
+    },
+    {
+      "id": 7,
+      "gate": "agents_file_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (agents_file_check+agents_render_check)",
+      "ok": true,
+      "detail": "the exeris-docs-adr-registry-keeper profile declares an output schema that is not on disk"
+    },
+    {
+      "id": 8,
+      "gate": "every gate",
+      "expected": "UNKNOWN",
+      "observed": "UNKNOWN",
+      "ok": true,
+      "detail": "an emptied corpus and a path that is not there"
+    }
+  ]
+}
