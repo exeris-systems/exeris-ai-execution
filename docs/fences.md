@@ -28,6 +28,9 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | `2026-09-19-ci-backfill-cc-2-1-273` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.273`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
 | `2026-09-19-ci-backfill-cc-2-1-274` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.274`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
 | `2026-09-19-ci-backfill-cc-2-1-278` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.278`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
+| `2026-09-23-harness-claude-cc-2-1-280` | 2026-09-23 | `harness-claude` | Rows written by `exeris-agent close-run` for an arm that runs Claude Code `2.1.280` against a vendor's model, headless, under the execution identity. | See *The harness fences* below. |
+| `2026-09-23-harness-claude-cc-2-1-280-w-4c856523d61d` | 2026-09-23 | `harness-claude` | The same producer and client, for an arm whose model is served on this machine from weights whose digest begins `4c856523d61d` (`gemma4:26b-a4b-it-qat` under Ollama, 128k context). | See *The harness fences* below. |
+| `2026-09-23-harness-antigravity-cc-1-2-8` | 2026-09-23 | `harness-antigravity` | Rows written by `exeris-agent close-run` for an arm that runs Antigravity `1.2.8` in its print mode, under the execution identity. | See *The harness fences* below. |
 
 ## The backfill fences
 
@@ -64,6 +67,27 @@ rule, applied to the producer that wrote them.
 **Why four.** One client version is one fence, by the rule stated below, and the rescued streams
 were produced under `2.1.272`, `2.1.273`, `2.1.274` and `2.1.278`. A single id spanning all four
 would join rows whose harness differed, which is the join `instrument.fence` exists to prevent.
+
+## The harness fences
+
+The three `harness-*` ids above are the local producer's first, entered before its first row, as
+the register requires of a new client version.
+
+**What they mark.** A row the harness writes is derived from the session log the client left, never
+from the model's account of itself: turns, tool calls and usage are counted from that log, and the
+outcome is the docs oracle's under the calibration it published. The client is part of the model
+reference, so each client version is its own id; the local arm's weights are part of it too, so the
+arm that serves `gemma4:26b-a4b-it-qat` here carries the weights' digest and stands apart from the
+arm that reaches a vendor through the same client at the same version.
+
+**The conditions they share.** Every arm is launched headless with one task text, with the
+organisation's documentation standards readable beside the worktree and nothing else outside it,
+and with no person in the loop after the first prompt. The Claude Code arms run under one fixed
+tool surface; the Antigravity arm runs under that client's own accept-edits mode, which is a
+different surface and is why its rows sit under a different producer. The local model server's
+context window is part of the local arm's conditions: a window smaller than the client's own
+system prompt plus the task's reading truncates the conversation, and rows either side of a change
+to it belong on different fences.
 
 ## The grammar of a fence id
 
