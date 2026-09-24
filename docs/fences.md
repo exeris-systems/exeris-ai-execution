@@ -114,7 +114,11 @@ every arm, its version and commit in the run's manifest. Both are instrument sta
 v1 and a row judged by v2 measure different things, and an arm that could ask the registry and one
 that could not ran under different conditions. The Antigravity arm's server comes from that client's
 user-level configuration, which the harness requires to name the pinned build exactly, and it
-exposes every tool the server lists where the Claude Code arms are given the three `docs-*` tools.
+exposes every tool the server lists where the Claude Code arms are given the three `docs-*` tools. A
+driven run under these producers that reaches `TRUE_DONE` is then asked, in the same session, for its
+pull request's body, and the organisation's template check is run over it with its findings sent
+back for up to two rounds; those rounds are part of what the row measures, because the run is done
+when its pull request can be opened.
 
 ## The grammar of a fence id
 
