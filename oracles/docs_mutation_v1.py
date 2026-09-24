@@ -313,7 +313,7 @@ def entry(mutant: Mutant, judgement, detail: str = "") -> dict:
     return row
 
 
-def tally(clean_ok: bool, mutants: list[dict]) -> tuple[str, str]:
+def tally(clean_ok: bool, mutants: list[dict], total: int = len(MUTANTS)) -> tuple[str, str]:
     """The suite's status and score.
 
     `pass` needs every mutant caught and the unmutated copy judged `TRUE_DONE`. Neither half is
@@ -321,8 +321,8 @@ def tally(clean_ok: bool, mutants: list[dict]) -> tuple[str, str]:
     it has never been seen to return one.
     """
     caught = sum(1 for m in mutants if m["ok"])
-    status = "pass" if clean_ok and caught == len(MUTANTS) else "fail"
-    return status, f"{caught}/{len(MUTANTS)}"
+    status = "pass" if clean_ok and caught == total else "fail"
+    return status, f"{caught}/{total}"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -481,7 +481,7 @@ def _validated_out(out: str, corpus_path: str) -> str | None:
     return None
 
 
-def _table(result: dict) -> str:
+def _table(result: dict, suite: str = SUITE) -> str:
     lines = ["| mutant | gate | expected | observed | ok |", "|--:|:--|:--|:--|:--|"]
     for row in result["mutants"]:
         lines.append(f"| {row['id']} | {row['gate']} | {row['expected']} | {row['observed']} "
@@ -490,7 +490,7 @@ def _table(result: dict) -> str:
     lines.append(f"| clean | every gate | {clean['expected']} | {clean['observed']} "
                  f"| {'yes' if clean['ok'] else 'NO'} |")
     lines.append("")
-    lines.append(f"{SUITE}: {result['status']} — {result['result']}")
+    lines.append(f"{suite}: {result['status']} — {result['result']}")
     return "\n".join(lines)
 
 

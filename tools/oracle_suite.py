@@ -11,15 +11,23 @@ a docstring, because a rule nobody has watched fail is a rule nobody knows is wi
     an inapplicable gate, and a pass carried over one would be the eighth mutant at the level of a
     single gate;
   * what `docs-mutation-v1` may publish as `status: pass` — 8/8 and a clean copy judged
-    `TRUE_DONE`, never one without the other.
+    `TRUE_DONE`, never one without the other — and what `docs-mutation-v2` may, at 11/11;
+  * when the two semantic gates apply: `content_preserved` only when the task named something to
+    keep, and never as a pass when the base it compares against could not be read;
+    `adr_links_resolve` only when the checkout holds stubs, and never as a pass when no bridge
+    answered for them.
 
-Fixtures only: gates are built by hand and the two judgements that need no checker at all — an
-absent checkout, and checkers that are not on disk — are the only ones that touch the filesystem.
-A case here never needs a real corpus, which is what lets this run in every job while the mutation
-suite runs where the corpus is.
+Fixtures only: gates are built by hand, the judgements that need no checker at all touch only a
+temporary directory, and the registry is read through `fixtures/mcp/stub_bridge.py`, a stand-in
+server this interpreter runs. A case here never needs a real corpus or a Node runtime, which is
+what lets this run in every job while the mutation suites run where the corpus is.
 """
 
+import contextlib
+import io
+import json
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -28,7 +36,10 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 from oracles import (FAIL, FALSE_DONE, NOT_RUN, PASS, TRUE_DONE, UNKNOWN,  # noqa: E402
                      Gate, Judgement, outcome_of)
-from oracles import docs_guardrails, docs_mutation_v1  # noqa: E402
+from oracles import adr_links, docs_guardrails, docs_mutation_v1, docs_mutation_v2  # noqa: E402
+from oracles import preservation  # noqa: E402
+
+STUB_BRIDGE = os.path.join(HERE, "fixtures", "mcp", "stub_bridge.py")
 
 CASES: list[tuple[str, object]] = []
 
@@ -139,8 +150,11 @@ def _():
         assert j.outcome == UNKNOWN, j.as_dict()
         assert all(g.result == NOT_RUN for g in j.gates), j.as_dict()
         # The instrument was missing, which is the state that must never be composed as a gate
-        # that did not apply.
-        assert all(not g.available for g in j.gates), j.as_dict()
+        # that did not apply. The two semantic gates have no checker to miss and had nothing to
+        # judge in an empty directory, which is the other state.
+        checkers = [g for g in j.gates if g.check in docs_guardrails.CHECKER_GATES]
+        assert len(checkers) == len(docs_guardrails.CHECKER_GATES), j.as_dict()
+        assert all(not g.available for g in checkers), j.as_dict()
 
 
 @case("an empty corpus comes back empty and says which of the two reasons it is")
@@ -180,6 +194,190 @@ def _():
             fh.write("jobs:\n  docs:\n    with:\n      mode: strict\n"
                      "      # exclude: \"docs/vendor\"\n      exclude: \"tools/fixtures\"\n")
         assert docs_guardrails.declared_exclusions(checkout) == "tools/fixtures"
+
+
+# --- content_preserved: what the task said to keep --------------------------------------------
+
+def git(repo: str, *args: str) -> str:
+    env = {**os.environ, **docs_mutation_v2.BASE_ENV}
+    return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def write(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+BODY = "# Roadmap\n\nOne.\nTwo.\nThree.\n"
+FRONT = "---\ntitle: Roadmap\ntype: reference\n---\n\n"
+
+
+def based_repo(root: str) -> str:
+    """A repository whose base commit holds a page without frontmatter; returns the commit."""
+    write(os.path.join(root, "ROADMAP.md"), BODY)
+    write(os.path.join(root, "src", "code.py"), "x = 1\n")
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+    return git(root, "rev-parse", "HEAD")
+
+
+@case("content_preserved does not apply when the task names nothing to keep")
+def _():
+    with tempfile.TemporaryDirectory() as checkout:
+        g = preservation.gate(checkout, "deadbeef", ())
+        assert (g.result, g.available) == (NOT_RUN, True), g
+
+
+@case("content_preserved with an unreadable base holds TRUE_DONE back")
+def _():
+    with tempfile.TemporaryDirectory() as checkout:
+        for base in ("deadbeef", None, "HEAD", "--output=x"):
+            g = preservation.gate(checkout, base, ("**/*.md",))
+            assert (g.result, g.available) == (NOT_RUN, False), (base, g)
+            assert outcome_of([Gate("frontmatter_check", PASS, ""), g]) == UNKNOWN
+
+
+@case("frontmatter added above an untouched body is preserved")
+def _():
+    with tempfile.TemporaryDirectory() as repo:
+        base = based_repo(repo)
+        write(os.path.join(repo, "ROADMAP.md"), FRONT + BODY)
+        write(os.path.join(repo, "src", "code.py"), "x = 2\n")    # not matched by the pattern
+        g = preservation.gate(repo, base, ("**/*.md",))
+        assert g.result == PASS, g
+
+
+@case("a body line lost under valid frontmatter fails content_preserved and says how much")
+def _():
+    with tempfile.TemporaryDirectory() as repo:
+        base = based_repo(repo)
+        write(os.path.join(repo, "ROADMAP.md"), FRONT + BODY.replace("Two.\n", ""))
+        g = preservation.gate(repo, base, ("**/*.md",))
+        assert g.result == FAIL, g
+        assert "ROADMAP.md (1 lines changed" in g.detail and "1 of 1" in g.detail, g
+
+
+@case("a preserved file deleted in the tree fails content_preserved")
+def _():
+    with tempfile.TemporaryDirectory() as repo:
+        base = based_repo(repo)
+        os.remove(os.path.join(repo, "ROADMAP.md"))
+        g = preservation.gate(repo, base, ("**/*.md",))
+        assert g.result == FAIL and "ROADMAP.md was deleted" in g.detail, g
+
+
+@case("a preserve pattern that is not a relative glob is refused, not ignored")
+def _():
+    with tempfile.TemporaryDirectory() as repo:
+        base = based_repo(repo)
+        g = preservation.gate(repo, base, ("/etc/*",))
+        assert (g.result, g.available) == (NOT_RUN, False), g
+
+
+# --- adr_links_resolve: what the registry says ------------------------------------------------
+
+REGISTRY = {
+    "rows": [{"number": 86, "title": "**The layer — a prose cell.** More prose.",
+              "owningRepo": "exeris-docs"},
+             {"number": 33, "title": "`Diagnostics` SPI — Introspection for Agent / CLI Adapters",
+              "owningRepo": "exeris-kernel"}],
+    "records": {"86": "---\ntitle: x\n---\n\n# ADR-086: Bound the Layer to Observation\n"},
+}
+LINK_086 = "[copy](https://github.com/exeris-systems/exeris-docs/blob/main/adr/ADR-086-x.md)\n"
+LINK_033 = "[copy](https://github.com/exeris-systems/exeris-kernel/blob/main/docs/adr/ADR-033.md)\n"
+
+
+def stub(number: int, title: str, heading: str, link: str) -> str:
+    return (f'---\ntitle: "{title}"\ntype: adr-link\n---\n\n# {heading}\n\n'
+            f"**Authoritative copy:** {link}")
+
+
+def links_gate(stubs: dict[int, str], registry: dict | None = REGISTRY, bridge=STUB_BRIDGE):
+    with tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as docs:
+        for number, text in stubs.items():
+            write(os.path.join(checkout, "docs", "adr", f"ADR-{number:03d}.link.md"), text)
+        write(os.path.join(docs, "adr-index.md"), "# index\n")
+        if registry is not None:
+            write(os.path.join(docs, "registry.json"), json.dumps(registry))
+        return adr_links.gate(checkout, bridge, os.path.join(docs, "adr-index.md"))
+
+
+GOOD_086 = stub(86, "ADR-086: Bound the Layer to Observation (link stub)",
+                "ADR-086 — the layer, bounded (link stub)", LINK_086)
+GOOD_033 = stub(33, "ADR-033 (link stub)",
+                "ADR-033 — `Diagnostics` SPI — Introspection for Agent and CLI Adapters", LINK_033)
+
+
+@case("adr_links_resolve does not apply to a checkout holding no stubs")
+def _():
+    g, used = links_gate({})
+    assert (g.result, g.available, used) == (NOT_RUN, True, None), g
+
+
+@case("stubs with no bridge to read them hold TRUE_DONE back")
+def _():
+    for bridge in (None, os.path.join(HERE, "fixtures", "mcp", "no-such-server.js")):
+        g, used = links_gate({86: GOOD_086}, bridge=bridge)
+        assert (g.result, g.available, used) == (NOT_RUN, False, None), (bridge, g)
+
+
+@case("a bridge that does not start, or cannot read the registry, is unavailable, not a finding")
+def _():
+    for registry in ({**REGISTRY, "crash": True}, None):
+        g, _ = links_gate({86: GOOD_086}, registry=registry)
+        assert (g.result, g.available) == (NOT_RUN, False), (registry, g)
+
+
+@case("stubs naming their records by title and linking their owners pass")
+def _():
+    # 086 by the record's own heading in its title field; 033 by the registry row's title in its
+    # heading, with `/` and `and` read as one conjunction.
+    g, used = links_gate({86: GOOD_086, 33: GOOD_033})
+    assert g.result == PASS, g
+    assert used is not None and "version" in used and "commit" in used, used
+
+
+@case("a stub whose title and heading name another record fails adr_links_resolve")
+def _():
+    wrong = stub(86, "ADR-086: Diagnostics SPI (link stub)", "ADR-086: Diagnostics SPI", LINK_086)
+    g, _ = links_gate({86: wrong})
+    assert g.result == FAIL and "not by the record's title" in g.detail, g
+
+
+@case("a stub that does not link its record's owning repository fails")
+def _():
+    g, _ = links_gate({33: GOOD_033.replace("exeris-kernel/", "exeris-kernel-enterprise/")})
+    assert g.result == FAIL and "does not link to exeris-kernel" in g.detail, g
+
+
+@case("a stub for a number the registry does not hold fails")
+def _():
+    g, _ = links_gate({999: stub(999, "ADR-999: x", "ADR-999: x", LINK_086)})
+    assert g.result == FAIL and "ADR-999 is not in the registry" in g.detail, g
+
+
+@case("a judgement names the bridge it read through, and only when it read through one")
+def _():
+    bare = judgement(Gate("frontmatter_check", PASS, ""))
+    assert "instrument" not in bare.as_dict()
+    used = Judgement(docs_guardrails.ORACLE_ID, "2.1.0", (Gate("frontmatter_check", PASS, ""),),
+                     {"bridge": {"version": "0.6.0", "commit": None}})
+    assert used.as_dict()["instrument"] == {"bridge": {"version": "0.6.0", "commit": None}}
+
+
+@case("the CLI refuses a base that is not a commit id and a preserve that is not a relative glob")
+def _():
+    for bad in (["--base", "HEAD~1"], ["--base=-x"], ["--preserve", "/abs/*.md"]):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                docs_guardrails.main([HERE, *bad])
+        except SystemExit as exc:
+            assert exc.code == 2, (bad, exc.code)
+            continue
+        raise AssertionError(f"the CLI accepted {bad}")
 
 
 # --- what the calibration suite may call a pass ----------------------------------------------
@@ -230,6 +428,31 @@ def _():
     for m in mutants[:7]:
         assert m.gate in docs_guardrails.GATES, m
         assert m.apply is not None, m
+
+
+
+@case("docs-mutation-v2 is v1's eight and three more, and refuses pass below 11/11")
+def _():
+    mutants = docs_mutation_v2.MUTANTS
+    assert [m.id for m in mutants] == list(range(1, 12)), [m.id for m in mutants]
+    assert mutants[:8] == docs_mutation_v1.MUTANTS
+    assert [(m.gate, m.expected) for m in mutants[8:]] == [
+        (preservation.CHECK, FALSE_DONE), (adr_links.CHECK, FALSE_DONE), (adr_links.CHECK, UNKNOWN)]
+    rows = mutant_rows(10, len(mutants))
+    assert docs_mutation_v1.tally(True, rows, len(mutants)) == ("fail", "10/11")
+    rows = mutant_rows(11, len(mutants))
+    assert docs_mutation_v1.tally(True, rows, len(mutants)) == ("pass", "11/11")
+
+
+@case("docs-mutation-v2's clean copy counts only when both semantic gates passed on it")
+def _():
+    structural = [Gate(n, PASS, "") for n in docs_guardrails.CHECKER_GATES]
+    inapplicable = judgement(*structural, Gate(preservation.CHECK, NOT_RUN, "nothing to keep"),
+                             Gate(adr_links.CHECK, PASS, ""))
+    assert inapplicable.outcome == TRUE_DONE
+    assert docs_mutation_v2.clean_ok(inapplicable) is False
+    both = judgement(*structural, Gate(preservation.CHECK, PASS, ""), Gate(adr_links.CHECK, PASS, ""))
+    assert docs_mutation_v2.clean_ok(both) is True
 
 
 def main() -> int:

@@ -4,7 +4,7 @@ type: reference
 visibility: public
 owning-repo: exeris-ai-execution
 status: active
-last-verified: 2026-09-22
+last-verified: 2026-09-24
 ---
 
 # Oracles a producer may name
@@ -22,7 +22,7 @@ written.
 | `oracle.id` | `oracle.version` | `oracle.calibration` on a row written today | Written by |
 |:--|:--|:--|:--|
 | `review-disposition` | `rest-v1` | `{suite: none, status: not-run, result: none}` | the CI producer, on a `docs-review-live` row |
-| `docs-guardrails` | the agent-bundle version the judged checkout pinned when the gates ran, or `unpinned`; it equals `repository_state.bundle_version` except in a run that edited the manifest — that field is read at `base_sha`, this one at the head the run left | whatever `oracles/docs-guardrails/oracle-selftest.json` publishes — `{suite: docs-mutation-v1, status: pass, result: 8/8}` as it stands | a harness, on a documentation row |
+| `docs-guardrails` | the agent-bundle version the judged checkout pinned when the gates ran, or `unpinned`; it equals `repository_state.bundle_version` except in a run that edited the manifest — that field is read at `base_sha`, this one at the head the run left | whatever `oracles/docs-guardrails/oracle-selftest-v2.json` publishes — `{suite: docs-mutation-v2, status: pass, result: 11/11}` as it stands | a harness, on a documentation row |
 | `scb` | `1.3` | `{suite: oracle-selftest, status: not-run, result: not-run}` | a harness, on a construction row |
 
 An id that is not in this table is not writable: the row would name a state no reader can look up.
@@ -36,22 +36,53 @@ the `not-run` status §D.17 leaves it at until that self-test passes as a suite.
 
 ## Where the `docs-guardrails` calibration comes from
 
-`oracles/docs-guardrails/oracle-selftest.json` is the home of that row's `status` and `result`, and
-the table above quotes it rather than owning it. The file is what `docs-mutation-v1` writes when it
-runs: the eight mutants of RFC-2026-09-08 §Testing built from a clean checkout of the documentation
-corpus, each judged by the oracle, plus the unmutated copy — because a suite that has never seen a
-`TRUE_DONE` has shown only that the oracle can say no.
+`oracles/docs-guardrails/oracle-selftest-v2.json` is the home of that row's `status` and `result`,
+and the table above quotes it rather than owning it. The file is what `docs-mutation-v2` writes
+when it runs: mutants built from a clean checkout of the documentation corpus, each judged by the
+oracle, plus the unmutated copy — because a suite that has never seen a `TRUE_DONE` has shown only
+that the oracle can say no.
 
-**The harness reads the calibration from that file when it closes a row**, and copies the two
+**What v2 adds.** The oracle's first five gates are the organisation's structural checkers, and
+`docs-mutation-v1`'s eight mutants — RFC-2026-09-08 §Testing — calibrate them. A run can leave a
+corpus well-formed and still wrong, and v1 has no mutant of that shape. v2 adds two gates and the
+three mutants that contradict them:
+
+| Gate | What it judges | Its inputs | Mutants |
+|:--|:--|:--|:--|
+| `content_preserved` | every file present at the run's starting commit and matching a pattern the task named keeps its body below the frontmatter byte for byte; a deleted one fails | `--base <commit>`, `--preserve <glob>` (repeatable) | 9 — a preserved file keeps valid frontmatter and loses body lines → `FALSE_DONE` |
+| `adr_links_resolve` | every `docs/adr/ADR-NNN.link.md` (or `adr/…`) names a record the registry holds, by that record's title, and links the record's owning repository | `--bridge <dist/server.js>` — the registry is read through the Exeris MCP server, which ADR-086 §A.3 admits as a context adapter | 10 — a stub naming another record's title → `FALSE_DONE`; 11 — a correct stub with no bridge on disk → `UNKNOWN` |
+
+Each gate states its own applicability, and fail-closed composition is unchanged. A task that names
+nothing to preserve, and a checkout holding no stubs, leave the gate `not-run` and out of the way.
+A task that names files to preserve against a base the checkout cannot read, and stubs with no
+bridge that answers for them, leave it `not-run` **and unavailable**, so the row is `UNKNOWN`:
+nothing looked at what the gate exists to see.
+
+v2 is v1's eight plus these three, so `status: pass` needs 11/11 **and** the clean copy judged
+`TRUE_DONE` with both new gates among those that passed — the clean copy is the corpus committed
+as a base, with a correct stub added, judged with that base, a `**/*.md` pattern and the bridge.
+The published file names the bridge's version and commit beside the corpus commit, because two of
+the gates judged there are the bridge's reading of the registry.
+
+`oracles/docs-guardrails/oracle-selftest.json`, v1's result, stays where it is and is still
+checked: it is the calibration of the five structural gates on their own, and v2 imports its
+mutants rather than restating them.
+
+**The harness reads the calibration from the v2 file when it closes a row**, and copies the two
 values onto the row as they stood at that moment. It does not decide them, and it does not carry a
 remembered pair: a row is interpretable only against the calibration in force when it was written,
 and a value typed into a producer is a second owner of a number that has a home.
 
 The suite has run as a suite and its result is published, which is the condition ADR-086 §G.35 puts
 before any row may name this oracle with `calibration.status: pass`. A run of the suite that scores
-below 8/8, or whose clean copy is not `TRUE_DONE`, publishes `status: fail`, and under §E.19 every
-documentation row written while that stands is `UNKNOWN` — the same mechanism, running in the
+below 11/11, or whose clean copy is not `TRUE_DONE`, publishes `status: fail`, and under §E.19
+every documentation row written while that stands is `UNKNOWN` — the same mechanism, running in the
 direction it was built to run.
+
+The `oracle calibration` job re-checks v1 on every pull request. v2 needs the bridge built, which
+that job does not do, so the v2 file is **checkable, not checked** in CI: it is re-run by hand with
+`python3 -m oracles.docs_mutation_v2 --corpus <exeris-docs> --out
+oracles/docs-guardrails/oracle-selftest-v2.json --bridge <dist/server.js> --check`.
 
 `oracle.version` is the agent-bundle version pinned by the checkout that was judged, because the
 gates are that bundle's rules. A checkout pinning none is judged all the same and the version

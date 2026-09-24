@@ -18,6 +18,14 @@ invokes them and never reimplemented here:
   * `agents_file_check.py`, `agents_render.py --check`, `agents_bundle.py verify` — the agent
     layer: schema, adapter drift and the pinned bundle's digest.
 
+Two gates read what no structural checker can, and are this layer's own (see their modules):
+
+  * `content_preserved` (`preservation.py`) — the files the task named as kept keep their body
+    below the frontmatter, compared with the commit the run started from. A corpus with prose
+    deleted is as well-formed as one without the deletion; only the task can say which it asked for.
+  * `adr_links_resolve` (`adr_links.py`) — every ADR link stub names the record the registry holds
+    by that record's title and links to its owning repository, read through the Exeris MCP server.
+
 The root is the checkout. That is the shared path model: the whole repository is documentation and
 what is not documentation is named in the taxonomy, so a root list here would be an opt-in list —
 the arrangement that fails by omission, silently, in the direction of a green result. The corpus
@@ -34,8 +42,8 @@ cannot find — the registry check prints "nothing to check" and exits 0 — so 
 nothing would otherwise be judged clean. That is the one verdict an instrument must never return
 about nothing, and it is the eighth mutant of the calibration suite.
 
-Usage: `python3 -m oracles.docs_guardrails <checkout> [--index <adr-index.md>]`, printing the
-Judgement as JSON. The oracle reports and never gates: its exit status says whether it could run,
+Usage: `python3 -m oracles.docs_guardrails <checkout> [--index <adr-index.md>] [--base <commit>]
+[--preserve <glob>]... [--bridge <dist/server.js>]`, printing the Judgement as JSON. The oracle reports and never gates: its exit status says whether it could run,
 not what it found, because a non-zero exit on `FALSE_DONE` would make a row's verdict somebody's
 red build and turn the observer into a gate.
 """
@@ -49,6 +57,8 @@ import subprocess
 import sys
 
 from . import FAIL, NOT_RUN, PASS, Gate, Judgement
+from . import adr_links, preservation
+from .paths import PATH_GRAMMAR, existing_directory, existing_file, listed_path
 
 ORACLE_ID = "docs-guardrails"
 # The value written where a checkout pins no bundle. A word rather than a number, because rows
@@ -56,90 +66,21 @@ ORACLE_ID = "docs-guardrails"
 UNPINNED = "unpinned"
 BUNDLE = "exeris-agents"
 
-#: What a path may be spelt as before it reaches a checker's command line: absolute, and made of
-#: the characters a path in a checkout is made of. A path that resolves to anything else is not
-#: one this oracle hands to a subprocess, whatever tree it was found in.
-PATH_GRAMMAR = re.compile(r"/[A-Za-z0-9._+@-]+(?:/[A-Za-z0-9._+@-]+)*")
-
 #: Why `corpus` found nothing where the checkout is the reason. Named, because it is the one empty
 #: result that is a fact about the tree rather than about the instrument, and composition treats
 #: the two differently.
 EMPTY_CORPUS = "the checkout holds no documentation the shared taxonomy admits"
 
 # Named once, in the order a reader of a row meets them, and reused for the not-run case so that a
-# judgement always carries the same five gates whether or not any of them could run. A gate that
-# disappears when it cannot run reads as a gate that did not apply.
-GATES = ("frontmatter_check", "registry_check", "agents_file_check", "agents_render_check",
-         "agents_bundle_verify")
+# judgement always carries the same gates whether or not any of them could run. A gate that
+# disappears when it cannot run reads as a gate that did not apply. The first five are the
+# organisation's checkers; the last two read what the task kept and what the registry says.
+CHECKER_GATES = ("frontmatter_check", "registry_check", "agents_file_check",
+                 "agents_render_check", "agents_bundle_verify")
+GATES = (*CHECKER_GATES, preservation.CHECK, adr_links.CHECK)
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SIBLINGS = os.path.dirname(_REPO)
-
-
-# --------------------------------------------------------------------------------------------
-# Where a path under a caller-supplied directory is allowed to come from.
-# --------------------------------------------------------------------------------------------
-
-
-def existing_directory(value: str) -> str:
-    """An `argparse` `type=` admitting only a directory already on disk, as its real path.
-
-    A directory this oracle is handed rather than one it creates is resolved once, at the boundary,
-    to the real path its symlinks point at — so every path built under it afterwards is checked
-    against the same tree a listing of it would show, not against a spelling that a link could
-    still lead somewhere else from.
-    """
-    resolved = os.path.realpath(value)
-    if not os.path.isdir(resolved):
-        raise argparse.ArgumentTypeError(f"{value!r} is not a directory")
-    return resolved
-
-
-def existing_file(value: str) -> str:
-    """An `argparse` `type=` admitting only a file already on disk, as its real path."""
-    resolved = os.path.realpath(value)
-    if not os.path.isfile(resolved):
-        raise argparse.ArgumentTypeError(f"{value!r} is not a file")
-    return resolved
-
-
-def _listed_child(directory: str, name: str) -> str | None:
-    """`name`, joined onto `directory`, only once a listing of `directory` has named it.
-
-    A checkout, a shared guardrails clone and an agent bundle's tools directory all arrive from
-    outside this process, so a path under one of them is built from what its own listing contains
-    rather than from the directory string concatenated with a name this process already knew. None
-    where the directory cannot be listed or does not hold that name, which reads the same as the
-    name not being on disk.
-    """
-    try:
-        entries = os.listdir(directory)
-    except OSError:
-        return None
-    for entry in entries:
-        if entry == name:
-            return os.path.join(directory, entry)
-    return None
-
-
-def listed_path(root: str, *parts: str) -> str | None:
-    """Join `parts` onto `root` one directory listing at a time, or None where the walk runs out.
-
-    Every step advances only onto a name the directory in fact contains, so the path this returns
-    is assembled from what `os.listdir` reported at each level rather than from the arguments as
-    given.
-    """
-    cur = root
-    for part in parts:
-        cur = _listed_child(cur, part)
-        if cur is None:
-            return None
-    real, top = os.path.realpath(cur), os.path.realpath(root)
-    if os.path.commonprefix((real, top)) != top or not real.startswith(top + os.sep):
-        return None
-    if not PATH_GRAMMAR.fullmatch(real):
-        return None
-    return real
 
 
 def _sibling(name: str, env: str) -> str:
@@ -479,8 +420,8 @@ def _agent_gates(checkout: str, agents_tools: str) -> list[Gate]:
     return gates
 
 
-def _all_not_run(reason: str, *, available: bool = True) -> list[Gate]:
-    return [Gate(name, NOT_RUN, reason, available=available) for name in GATES]
+def _all_not_run(reason: str, *, available: bool = True, names=GATES) -> list[Gate]:
+    return [Gate(name, NOT_RUN, reason, available=available) for name in names]
 
 
 def index_within(index: str | None, checkout: str, guardrails: str) -> str | None:
@@ -506,13 +447,18 @@ def index_within(index: str | None, checkout: str, guardrails: str) -> str | Non
 
 
 def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | None = None,
-          index: str | None = None) -> Judgement:
+          index: str | None = None, base: str | None = None, preserve=(),
+          bridge: str | None = None) -> Judgement:
     """Judge one checkout. The gates are run in the checkout; nothing in it is written.
 
     `checkout`, `guardrails` and `agents_tools` are resolved to real paths once, here, at the
     boundary where they arrive from the caller: every path a gate opens under one of them is then
     built by listing the same tree this resolution named, and every checker this run starts is run
     inside it rather than told where it is on a command line.
+
+    `base` is the commit the run started from and `preserve` the task's patterns for files whose
+    body the run must leave as it found it; `bridge` is the MCP server the registry is read
+    through. Each is an input of one gate, and each gate says whether it could use it.
     """
     checkout = os.path.realpath(checkout)
     guardrails = os.path.realpath(guardrails or default_guardrails())
@@ -521,17 +467,37 @@ def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | N
     if not os.path.isdir(checkout):
         return Judgement(ORACLE_ID, version,
                          _all_not_run(f"there is no checkout at {checkout}", available=False))
+    index = index_within(index, checkout, guardrails)
+    links, used = adr_links.gate(checkout, bridge, index)
+    semantic = [preservation.gate(checkout, base, preserve), links]
+    instrument = {"bridge": used} if used else None
     exclude = declared_exclusions(checkout)
     files, why = corpus(checkout, guardrails, exclude)
     if not files:
         # A checkout holding no documentation is a tree the gates reached and found nothing in; a
         # taxonomy that is absent or did not resolve is an instrument that never reached a tree.
-        # Both are `UNKNOWN` here and they are not the same state.
-        return Judgement(ORACLE_ID, version, _all_not_run(why, available=(why == EMPTY_CORPUS)))
+        # Both are `UNKNOWN` for the checkers and they are not the same state. The two semantic
+        # gates still run: a run that emptied the corpus has removed what the task said to keep.
+        checkers = _all_not_run(why, available=(why == EMPTY_CORPUS), names=CHECKER_GATES)
+        return Judgement(ORACLE_ID, version, [*checkers, *semantic], instrument)
     gates = [_frontmatter_gate(checkout, guardrails, exclude),
-             _registry_gate(checkout, guardrails, index_within(index, checkout, guardrails)),
-             *_agent_gates(checkout, agents_tools)]
-    return Judgement(ORACLE_ID, version, gates)
+             _registry_gate(checkout, guardrails, index),
+             *_agent_gates(checkout, agents_tools), *semantic]
+    return Judgement(ORACLE_ID, version, gates, instrument)
+
+
+def commit_id(value: str) -> str:
+    """An `argparse` `type=` admitting only a commit id, never a ref name or an option."""
+    if not preservation.COMMIT.fullmatch(value):
+        raise argparse.ArgumentTypeError(f"{value!r} is not a commit id")
+    return value
+
+
+def preserve_pattern(value: str) -> str:
+    """An `argparse` `type=` admitting only a relative glob."""
+    if preservation.valid_preserve((value,)) is None:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a relative glob")
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -543,9 +509,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="the agent bundle's tools/ directory")
     ap.add_argument("--index", type=existing_file, default=None,
                     help="the central ADR registry, for a checkout that is not the registry")
+    ap.add_argument("--base", type=commit_id, default=None,
+                    help="the commit the run started from, reachable in the checkout")
+    ap.add_argument("--preserve", type=preserve_pattern, action="append", default=[],
+                    help="a relative glob of files whose body the run must not change; repeatable")
+    ap.add_argument("--bridge", type=existing_file, default=None,
+                    help="the Exeris MCP server (dist/server.js) the registry is read through")
     a = ap.parse_args(argv)
     print(judge(a.checkout, guardrails=a.guardrails, agents_tools=a.agents_tools,
-                index=a.index).to_json())
+                index=a.index, base=a.base, preserve=tuple(a.preserve),
+                bridge=a.bridge).to_json())
     return 0
 
 
