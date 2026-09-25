@@ -381,12 +381,15 @@ def _registry_gate(checkout: str, guardrails: str, index: str | None) -> Gate:
     if adr_dir is None:
         return Gate("registry_check", NOT_RUN,
                     "the checkout holds neither a registry nor a records directory")
-    if not index or not os.path.isfile(index):
+    # The index reaches the checker's command line, so what is passed is the grammar's own match
+    # of it: one absolute path of plain segments, never an option.
+    admitted = PATH_GRAMMAR.fullmatch(index) if index and os.path.isfile(index) else None
+    if admitted is None:
         return Gate("registry_check", NOT_RUN,
                     "no central index on disk: the check would have to fetch one over the network",
                     available=False)
     return _verdict("registry_check", _run(
-        [sys.executable, script, "--adr-dir", adr_dir, "--index", index], checkout))
+        [sys.executable, script, "--adr-dir", adr_dir, "--index", admitted.group(0)], checkout))
 
 
 def _agent_gates(checkout: str, agents_tools: str) -> list[Gate]:
@@ -441,7 +444,7 @@ def index_within(index: str | None, checkout: str, guardrails: str) -> str | Non
         return None
     roots = (checkout, os.path.dirname(guardrails.rstrip(os.sep)), os.path.realpath(os.getcwd()))
     for root in roots:
-        if real.startswith(root + os.sep):
+        if os.path.commonprefix((real, root + os.sep)) == root + os.sep:
             return real
     return None
 

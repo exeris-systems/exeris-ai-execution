@@ -23,8 +23,6 @@ server this interpreter runs. A case here never needs a real corpus or a Node ru
 what lets this run in every job while the mutation suites run where the corpus is.
 """
 
-import contextlib
-import io
 import json
 import os
 import subprocess
@@ -211,12 +209,14 @@ def write(path: str, text: str) -> None:
 
 
 BODY = "# Roadmap\n\nOne.\nTwo.\nThree.\n"
+PAGE = "ROADMAP.md"
+EVERY_PAGE = ("**/*.md",)
 FRONT = "---\ntitle: Roadmap\ntype: reference\n---\n\n"
 
 
 def based_repo(root: str) -> str:
     """A repository whose base commit holds a page without frontmatter; returns the commit."""
-    write(os.path.join(root, "ROADMAP.md"), BODY)
+    write(os.path.join(root, PAGE), BODY)
     write(os.path.join(root, "src", "code.py"), "x = 1\n")
     git(root, "init", "-q")
     git(root, "add", "-A")
@@ -235,7 +235,7 @@ def _():
 def _():
     with tempfile.TemporaryDirectory() as checkout:
         for base in ("deadbeef", None, "HEAD", "--output=x"):
-            g = preservation.gate(checkout, base, ("**/*.md",))
+            g = preservation.gate(checkout, base, EVERY_PAGE)
             assert (g.result, g.available) == (NOT_RUN, False), (base, g)
             assert outcome_of([Gate("frontmatter_check", PASS, ""), g]) == UNKNOWN
 
@@ -244,9 +244,9 @@ def _():
 def _():
     with tempfile.TemporaryDirectory() as repo:
         base = based_repo(repo)
-        write(os.path.join(repo, "ROADMAP.md"), FRONT + BODY)
+        write(os.path.join(repo, PAGE), FRONT + BODY)
         write(os.path.join(repo, "src", "code.py"), "x = 2\n")    # not matched by the pattern
-        g = preservation.gate(repo, base, ("**/*.md",))
+        g = preservation.gate(repo, base, EVERY_PAGE)
         assert g.result == PASS, g
 
 
@@ -254,8 +254,8 @@ def _():
 def _():
     with tempfile.TemporaryDirectory() as repo:
         base = based_repo(repo)
-        write(os.path.join(repo, "ROADMAP.md"), FRONT + BODY.replace("Two.\n", ""))
-        g = preservation.gate(repo, base, ("**/*.md",))
+        write(os.path.join(repo, PAGE), FRONT + BODY.replace("Two.\n", ""))
+        g = preservation.gate(repo, base, EVERY_PAGE)
         assert g.result == FAIL, g
         assert "ROADMAP.md (1 lines changed" in g.detail and "1 of 1" in g.detail, g
 
@@ -264,8 +264,8 @@ def _():
 def _():
     with tempfile.TemporaryDirectory() as repo:
         base = based_repo(repo)
-        os.remove(os.path.join(repo, "ROADMAP.md"))
-        g = preservation.gate(repo, base, ("**/*.md",))
+        os.remove(os.path.join(repo, PAGE))
+        g = preservation.gate(repo, base, EVERY_PAGE)
         assert g.result == FAIL and "ROADMAP.md was deleted" in g.detail, g
 
 
@@ -290,7 +290,7 @@ LINK_086 = "[copy](https://github.com/exeris-systems/exeris-docs/blob/main/adr/A
 LINK_033 = "[copy](https://github.com/exeris-systems/exeris-kernel/blob/main/docs/adr/ADR-033.md)\n"
 
 
-def stub(number: int, title: str, heading: str, link: str) -> str:
+def stub(title: str, heading: str, link: str) -> str:
     return (f'---\ntitle: "{title}"\ntype: adr-link\n---\n\n# {heading}\n\n'
             f"**Authoritative copy:** {link}")
 
@@ -305,9 +305,9 @@ def links_gate(stubs: dict[int, str], registry: dict | None = REGISTRY, bridge=S
         return adr_links.gate(checkout, bridge, os.path.join(docs, "adr-index.md"))
 
 
-GOOD_086 = stub(86, "ADR-086: Bound the Layer to Observation (link stub)",
+GOOD_086 = stub("ADR-086: Bound the Layer to Observation (link stub)",
                 "ADR-086 — the layer, bounded (link stub)", LINK_086)
-GOOD_033 = stub(33, "ADR-033 (link stub)",
+GOOD_033 = stub("ADR-033 (link stub)",
                 "ADR-033 — `Diagnostics` SPI — Introspection for Agent and CLI Adapters", LINK_033)
 
 
@@ -342,7 +342,7 @@ def _():
 
 @case("a stub whose title and heading name another record fails adr_links_resolve")
 def _():
-    wrong = stub(86, "ADR-086: Diagnostics SPI (link stub)", "ADR-086: Diagnostics SPI", LINK_086)
+    wrong = stub("ADR-086: Diagnostics SPI (link stub)", "ADR-086: Diagnostics SPI", LINK_086)
     g, _ = links_gate({86: wrong})
     assert g.result == FAIL and "not by the record's title" in g.detail, g
 
@@ -355,7 +355,7 @@ def _():
 
 @case("a stub for a number the registry does not hold fails")
 def _():
-    g, _ = links_gate({999: stub(999, "ADR-999: x", "ADR-999: x", LINK_086)})
+    g, _ = links_gate({999: stub("ADR-999: x", "ADR-999: x", LINK_086)})
     assert g.result == FAIL and "ADR-999 is not in the registry" in g.detail, g
 
 
@@ -371,13 +371,9 @@ def _():
 @case("the CLI refuses a base that is not a commit id and a preserve that is not a relative glob")
 def _():
     for bad in (["--base", "HEAD~1"], ["--base=-x"], ["--preserve", "/abs/*.md"]):
-        try:
-            with contextlib.redirect_stderr(io.StringIO()):
-                docs_guardrails.main([HERE, *bad])
-        except SystemExit as exc:
-            assert exc.code == 2, (bad, exc.code)
-            continue
-        raise AssertionError(f"the CLI accepted {bad}")
+        done = subprocess.run([sys.executable, "-m", "oracles.docs_guardrails", HERE, *bad],
+                              cwd=os.path.dirname(HERE), capture_output=True, text=True)
+        assert done.returncode == 2, (bad, done.returncode, done.stdout)
 
 
 # --- what the calibration suite may call a pass ----------------------------------------------
