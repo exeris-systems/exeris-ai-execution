@@ -392,6 +392,7 @@ class Outcome:
     artifact_id: object
     workflow_run_id: object
     pull_request: int | None = None
+    part: str | None = None
     row: dict | None = None
     reason: str | None = None
     detail: str = ""
@@ -566,6 +567,7 @@ def run_step(entry: dict, fetcher: Fetcher, out: Outcome) -> tuple[dict, str] | 
     if not entry.get("workflow_run_id"):
         return out.no_row("run-unresolved", "the index entry names no workflow run")
     out.pull_request = ci_row.pr_number(entry.get("artifact_name"))
+    out.part = ci_row.artifact_part(entry.get("artifact_name"))
     if out.pull_request is None:
         return out.no_row("pr-unresolved",
                           f"`{entry.get('artifact_name')}` names no pull request")
@@ -621,7 +623,7 @@ def schedule_step(entry: dict, fetcher: Fetcher, run: dict,
     jobs = fetcher.get(
         f"repos/{out.repo}/actions/runs/{entry['workflow_run_id']}/jobs?per_page=100")
     jobs = None if absent(jobs) else jobs
-    started, coarse = ci_row.review_started_at(jobs, run, REVIEW_STEP)
+    started, coarse = ci_row.review_started_at(jobs, run, REVIEW_STEP, out.part)
     out.started_at_coarse = coarse
     if not started:
         return out.no_row("started-at-unresolved", "neither the review step nor the run is dated")
@@ -670,7 +672,8 @@ def prompt_substitutions(out: Outcome, mapping: dict, conclusions: dict, inputs:
         else PROMPT_ABSENT_INPUT
     checks_out = "repo-checks.out" if (inputs.get("repo-checks") or "").strip() \
         else PROMPT_ABSENT_INPUT
-    return {
+    part = {} if out.part is None else {"${{ matrix.part }}": out.part}
+    return part | {
         "${{ github.event.pull_request.number }}": out.pull_request,
         "${{ github.repository }}": out.repo,
         "${{ steps.gates.outputs.checks_run }}": ci_row.checks_run_json(
@@ -717,6 +720,12 @@ def prompt_step(fetcher: Fetcher, run: dict, jobs: object, head_sha: str, templa
                           "the caller's `l1-results` names a job the run reports no conclusion "
                           "for, so the text the prompt carried is not established")
     try:
+        if out.part is None and any(ci_row.expression_key(m.group(0)) == "${{ matrix.part }}"
+                                    for m in ci_row.EXPRESSION.finditer(
+                                        ci_row.prompt_template(template))):
+            return out.no_row("part-unresolved",
+                              "the prompt names the part it judges and the stream's artefact "
+                              "names none, so what the prompt said on this run is not established")
         return ci_row.render_prompt(
             template, prompt_substitutions(out, mapping, conclusions, inputs, l1_input))
     except ci_row.UnsupportedTemplate as exc:

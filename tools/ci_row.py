@@ -80,6 +80,8 @@ PROMPT_SUBSTITUTIONS = (
     "${{ inputs.repo-routine != '' && inputs.repo-routine || '(none)' }}",
     "${{ inputs.repo-routine != '' && 'repo-routine.base.md' || '(none)' }}",
     "${{ inputs.repo-checks != '' && 'repo-checks.out' || '(none)' }}",
+    # The part a leg of the review's matrix judges, which its artefact's name carries.
+    "${{ matrix.part }}",
 )
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
@@ -102,7 +104,10 @@ PROMPT_OUTPUT = re.compile(
 # ignored: an unquoted delimiter lets the shell expand the body, so the file written is not the
 # text standing in the workflow and no reading of the workflow is the prompt.
 HEREDOC = re.compile(r"<<(-?)(['\"]?)([A-Za-z_]\w*)\2", re.ASCII)
-ARTIFACT_NAME = re.compile(r"^l2-execution-(\d+)$")
+# The execution artefact of one review run: `l2-execution-<pull request>`, or
+# `l2-execution-<pull request>-<part>` where the review runs as several parts, one stream each. A
+# part starts with a letter, so the number that ends before it is the pull request's whole number.
+ARTIFACT_NAME = re.compile(r"^l2-execution-(\d+)(?:-([a-z](?:[a-z0-9-]*[a-z0-9])?))?$")
 NEEDS_RESULT = re.compile(
     r'"([^"]+)"\s*:\s*"\$\{\{\s*needs\.([A-Za-z0-9_.-]+)\.result\s*\}\}"')
 # The same expression read for the job alone, without the check name a caller writes beside it. The
@@ -1214,6 +1219,17 @@ def pr_number(artifact_name: str) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def artifact_part(artifact_name: str) -> str | None:
+    """The part of the review an execution artefact belongs to, or None for a whole-review stream.
+
+    A review that runs as several parts uploads one stream per part, and the part is what tells
+    them apart: which matrix leg's step dated the run, and what `${{ matrix.part }}` stood for in the
+    prompt that leg rendered.
+    """
+    found = ARTIFACT_NAME.match(str(artifact_name or ""))
+    return found.group(2) if found else None
+
+
 def run_id(workflow_run_id: object, artifact_id: object) -> str:
     """`ci-<workflow run>-<artefact>` — the run and the stream that records it, both named.
 
@@ -1359,7 +1375,7 @@ def referenced_workflow(run_json: dict | None, basename: str) -> dict | None:
 
 
 def review_started_at(jobs_json: dict | None, run_json: dict | None,
-                      step_name: str) -> tuple[str | None, bool]:
+                      step_name: str, part: str | None = None) -> tuple[str | None, bool]:
     """`started_at`, and whether it is the coarse one.
 
     The reviewing step's own start is what the row wants: it is when the run began, and a fence is
@@ -1367,9 +1383,14 @@ def review_started_at(jobs_json: dict | None, run_json: dict | None,
     The run's `run_started_at` is the fallback and it is marked in the log, never in the row — a
     field that said "approximately" would need a reader to know which rows carry it, and the log is
     where that belongs.
+
+    With a `part`, only the matrix leg that judged it counts. Every leg carries a step of the same
+    name, and the host names a leg's job `<job> (<part>)`; another leg's step dates another run.
     """
     for job in (jobs_json or {}).get("jobs") or []:
         if not isinstance(job, dict):
+            continue
+        if part is not None and not str(job.get("name", "")).endswith(f"({part})"):
             continue
         for step in job.get("steps") or []:
             if isinstance(step, dict) and step.get("name") == step_name and step.get("started_at"):
