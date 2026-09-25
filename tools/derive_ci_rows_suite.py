@@ -1371,6 +1371,96 @@ def _(root):
         assert common == real_cache, (path, where)
 
 
+# 31-34 — a review that runs as several parts, one stream each.
+
+@case("31 — an artefact name carries the pull request, and optionally the part it judged")
+def _(root):
+    mod = ci_row()
+    for name, pull, part in (("l2-execution-7", 7, None),
+                             ("l2-execution-7-pr", 7, "pr"),
+                             ("l2-execution-12-code-docs", 12, "code-docs")):
+        assert mod.pr_number(name) == pull, (name, mod.pr_number(name))
+        assert mod.artifact_part(name) == part, (name, mod.artifact_part(name))
+    # A part starts with a letter and ends on a letter or digit: the number before it is then the
+    # whole pull request number, and a name that trails off names nothing rather than a guess.
+    for name in ("l2-execution-7-", "l2-execution-7-9x", "l2-execution-7-Docs",
+                 "l2-execution-7-docs-", "l2-execution-x"):
+        assert mod.pr_number(name) is None, name
+        assert mod.artifact_part(name) is None, name
+
+
+def part_jobs(parts: dict) -> dict:
+    """A jobs body with one produce leg per part, each started at its own instant."""
+    return {"total_count": len(parts), "jobs": [
+        {"name": f"docs-review / produce ({part})", "conclusion": "success",
+         "steps": [{"name": "Docs and hygiene review", "started_at": at}]}
+        for part, at in parts.items()]}
+
+
+@case("32 — a part's run is dated by its own matrix leg, and by no other")
+def _(root):
+    mod = ci_row()
+    jobs = part_jobs({"pr": "2026-09-17T10:00:00Z", "docs": "2026-09-17T10:00:30Z"})
+    run = {"run_started_at": "2026-09-17T09:58:12Z"}
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review", "docs") \
+        == ("2026-09-17T10:00:30Z", False)
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review", "pr") \
+        == ("2026-09-17T10:00:00Z", False)
+    # A part with no leg in the run is dated by the run, and marked coarse: another leg's step is
+    # another review's start.
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review", "records") \
+        == ("2026-09-17T09:58:12Z", True)
+    # Without a part the first reviewing step still dates the run, as it did for one stream.
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review") \
+        == ("2026-09-17T10:00:00Z", False)
+
+
+def with_part_template(w: World) -> None:
+    """The fixture's review workflow, its prompt naming the part the leg judges."""
+    template = fixture(DOCS_REVIEW)
+    anchor = "            `.guardrails/docs-guardrails-review.md`.\n"
+    assert anchor in template, "the fixture prompt no longer carries the line the part follows"
+    template = template.replace(anchor, anchor + "            PART: ${{ matrix.part }}\n", 1)
+    w.rest.file(ORG, REVIEW_REST_PATH, REF_SHA, template)
+
+
+def jobs_key(w: World) -> str:
+    keys = [k for k in w.rest.bodies if k.endswith("/jobs")]
+    assert len(keys) == 1, keys
+    return keys[0]
+
+
+@case("33 — a part's stream renders the part into the prompt, so two parts are two instructions")
+def _(root):
+    hashes = {}
+    for part in ("docs", "pr"):
+        here = os.path.join(root, part)
+        os.makedirs(here)
+        w = World(here)
+        with_part_template(w)
+        w.index[0]["artifact_name"] = f"l2-execution-{PR}-{part}"
+        # The fixture run's own jobs, its produce job named the way the host names a matrix leg.
+        body = json.loads(json.dumps(w.rest.bodies[jobs_key(w)]))
+        legs = [j for j in body["jobs"] if j["name"] == "docs-review / produce"]
+        assert len(legs) == 1, body
+        legs[0]["name"] = f"docs-review / produce ({part})"
+        w.rest.bodies[jobs_key(w)] = body
+        w.build()
+        code, out = w.run()
+        assert code == 0, out
+        hashes[part] = w.row()["agent"]["system_prompt_sha256"]
+    assert hashes["docs"] != hashes["pr"], hashes
+
+
+@case("34 — a prompt that names its part, on a stream whose artefact names none, yields no row")
+def _(root):
+    w = World(root)
+    with_part_template(w)
+    w.build()
+    _code, out = w.run()
+    assert_no_row(w, out, "part-unresolved")
+
+
 def main() -> int:
     failures = 0
     for name, fn in CASES:
