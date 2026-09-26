@@ -359,6 +359,15 @@ def _():
     assert g.result == FAIL and "ADR-999 is not in the registry" in g.detail, g
 
 
+@case("adr_links_resolve cannot judge a stub whose record has no title anywhere, and says so")
+def _():
+    untitled = {**REGISTRY, "rows": [{**row, "title": ""} if row["number"] == 33 else row
+                                     for row in REGISTRY["rows"]]}
+    g, _ = links_gate({33: GOOD_033}, registry=untitled)
+    assert (g.result, g.available) == (NOT_RUN, False) and "ADR-033 has no title" in g.detail, g
+    assert outcome_of([Gate("frontmatter_check", PASS, ""), g]) == UNKNOWN
+
+
 @case("a judgement names the bridge it read through, and only when it read through one")
 def _():
     bare = judgement(Gate("frontmatter_check", PASS, ""))

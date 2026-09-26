@@ -130,11 +130,25 @@ def links_repository(targets: list[str], repository: str) -> bool:
     return any(repository in target.split("/") for target in targets)
 
 
+class Untitled(Exception):
+    """Neither the registry row nor the record gives a title, so no stub can be checked against one.
+
+    A state of the registry, not of the stub: the gate cannot judge, and says so rather than
+    failing the run for what the registry left out.
+    """
+
+
 def judge_stub(text: str, number: int, row: dict | None, own_title: str | None) -> str | None:
-    """Why the stub does not describe its record, or None where it does."""
+    """Why the stub does not describe its record, or None where it does.
+
+    Raises `Untitled` where the record has a row and neither it nor the record names a title.
+    """
     if row is None:
         return f"ADR-{number:03d} is not in the registry"
     titles = [t for t in (own_title, row.get("title")) if t]
+    if not titles:
+        raise Untitled(f"ADR-{number:03d} has no title in its registry row and none the bridge "
+                       f"could read from the record")
     stub_names = names(text)
     if not any(names_title(n, t) for n in stub_names for t in titles):
         shown = stub_names[-1] if stub_names else "no title or heading"
@@ -241,6 +255,8 @@ def gate(checkout: str, bridge: str | None, index: str | None) -> tuple[Gate, di
             offences = _offences(client, found)
     except McpError as exc:
         return _unavailable(f"{count} unread: the bridge did not answer ({exc})")
+    except Untitled as exc:
+        return _unavailable(f"{count} unjudged: {exc}")
     used = instrument(real)
     if offences:
         return Gate(CHECK, FAIL, f"{len(offences)} of {count} misdescribe their record; "
