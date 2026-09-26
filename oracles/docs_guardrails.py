@@ -462,18 +462,30 @@ def judge(checkout: str, *, guardrails: str | None = None, agents_tools: str | N
     `base` is the commit the run started from and `preserve` the task's patterns for files whose
     body the run must leave as it found it; `bridge` is the MCP server the registry is read
     through. Each is an input of one gate, and each gate says whether it could use it.
+
+    **The first generation's form is kept.** A call naming neither a bridge nor anything to preserve
+    is the question the first generation answers, and it gets that judgement: the five structural
+    gates, without the two semantic ones. A caller still calibrated against the first generation
+    passes neither — it is judged by what its suite measured — and a caller that names either is
+    asking the second generation's question, where a stub no bridge could read holds `TRUE_DONE`
+    back.
     """
     checkout = os.path.realpath(checkout)
+    second = bool(bridge or preserve)
+    names = GATES if second else CHECKER_GATES
     guardrails = os.path.realpath(guardrails or default_guardrails())
     agents_tools = os.path.realpath(agents_tools or default_agents_tools())
     version = bundle_version(checkout)
     if not os.path.isdir(checkout):
         return Judgement(ORACLE_ID, version,
-                         _all_not_run(f"there is no checkout at {checkout}", available=False))
+                         _all_not_run(f"there is no checkout at {checkout}", available=False,
+                                      names=names))
     index = index_within(index, checkout, guardrails)
-    links, used = adr_links.gate(checkout, bridge, index)
-    semantic = [preservation.gate(checkout, base, preserve), links]
-    instrument = {"bridge": used} if used else None
+    semantic, instrument = [], None
+    if second:
+        links, used = adr_links.gate(checkout, bridge, index)
+        semantic = [preservation.gate(checkout, base, preserve), links]
+        instrument = {"bridge": used} if used else None
     exclude = declared_exclusions(checkout)
     files, why = corpus(checkout, guardrails, exclude)
     if not files:

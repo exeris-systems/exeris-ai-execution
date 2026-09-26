@@ -4,7 +4,7 @@ type: reference
 visibility: public
 owning-repo: exeris-ai-execution
 status: active
-last-verified: 2026-09-24
+last-verified: 2026-09-26
 ---
 
 # Oracles a producer may name
@@ -54,9 +54,14 @@ three mutants that contradict them:
 
 Each gate states its own applicability, and fail-closed composition is unchanged. A task that names
 nothing to preserve, and a checkout holding no stubs, leave the gate `not-run` and out of the way.
-A task that names files to preserve against a base the checkout cannot read, and stubs with no
-bridge that answers for them, leave it `not-run` **and unavailable**, so the row is `UNKNOWN`:
-nothing looked at what the gate exists to see.
+A task that names files to preserve against a base the checkout cannot read, stubs with no bridge
+that answers for them, and a stub whose record has no title anywhere — none in its registry row and
+none the bridge could read from the record — leave it `not-run` **and unavailable**, so the row is
+`UNKNOWN`: nothing looked at what the gate exists to see.
+
+The two gates are the second generation's question, and a call asks it by naming a bridge or
+something to preserve. A call naming neither — the form a producer calibrated against v1 uses — is
+judged as v1 judges: the five structural gates, without these two.
 
 v2 is v1's eight plus these three, so `status: pass` needs 11/11 **and** the clean copy judged
 `TRUE_DONE` with both new gates among those that passed — the clean copy is the corpus committed

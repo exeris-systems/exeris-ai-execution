@@ -63,21 +63,20 @@ def _git(checkout: str, *args: str, stdin: bytes | None = None) -> subprocess.Co
 def body(data: bytes) -> bytes:
     """`data` after its leading YAML frontmatter block, with the blank lines that follow it removed.
 
-    A block opens with `---` on the first line and closes at the next line that is exactly `---`.
-    A file whose first line does not open one, or whose block never closes, has no frontmatter and
-    its body is the whole text.
+    A block opens with a first line that is `---` and closes at the next line that is `---`, either
+    one allowing surrounding whitespace, as the link-stub reader in `adr_links` allows it: the two
+    gates read one file format and have to agree on where its frontmatter ends. A file whose first
+    line does not open a block, or whose block never closes, has no frontmatter and its body is the
+    whole text.
     """
     text = data.replace(b"\r\n", b"\n")
-    if not text.startswith(b"---\n"):
+    lines = text.split(b"\n")
+    if lines[0].strip() != b"---":
         return text
-    close = text.find(b"\n---\n", 3)
-    if close >= 0:
-        rest = text[close + len(b"\n---\n"):]
-    elif text.endswith(b"\n---"):
-        rest = b""
-    else:
-        return text
-    return rest.lstrip(b"\n")
+    for i in range(1, len(lines)):
+        if lines[i].strip() == b"---":
+            return b"\n".join(lines[i + 1:]).lstrip(b"\n")
+    return text
 
 
 def _matchers(preserve: tuple[str, ...]) -> list[re.Pattern]:

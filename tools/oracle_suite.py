@@ -135,10 +135,29 @@ def _():
 
 @case("a checkout that is not there is UNKNOWN, and every gate says why")
 def _():
-    j = docs_guardrails.judge(os.path.join(HERE, "a-checkout-that-is-not-there"))
-    assert j.outcome == UNKNOWN, j.as_dict()
-    assert [g.check for g in j.gates] == list(docs_guardrails.GATES)
-    assert all(g.result == NOT_RUN and "no checkout" in g.detail for g in j.gates), j.as_dict()
+    missing = os.path.join(HERE, "a-checkout-that-is-not-there")
+    for inputs, gates in (({}, docs_guardrails.CHECKER_GATES),
+                          ({"bridge": STUB_BRIDGE}, docs_guardrails.GATES)):
+        j = docs_guardrails.judge(missing, **inputs)
+        assert j.outcome == UNKNOWN, j.as_dict()
+        assert [g.check for g in j.gates] == list(gates), (inputs, j.as_dict())
+        assert all(g.result == NOT_RUN and "no checkout" in g.detail for g in j.gates), j.as_dict()
+
+
+@case("a call naming no bridge and nothing to preserve is the first generation's judgement")
+def _():
+    with tempfile.TemporaryDirectory() as checkout:
+        write(os.path.join(checkout, "docs", "adr", "ADR-086.link.md"), GOOD_086)
+        bare = docs_guardrails.judge(checkout)
+        assert [g.check for g in bare.gates] == list(docs_guardrails.CHECKER_GATES), bare.as_dict()
+        assert "instrument" not in bare.as_dict()
+        # Naming a bridge asks the second generation's question, and a stub that bridge cannot
+        # read holds the outcome back.
+        nowhere = os.path.join(HERE, "fixtures", "mcp", "no-such-server.js")
+        asked = docs_guardrails.judge(checkout, bridge=nowhere)
+        links = next(g for g in asked.gates if g.check == adr_links.CHECK)
+        assert (links.result, links.available) == (NOT_RUN, False), asked.as_dict()
+        assert asked.outcome != TRUE_DONE, asked.as_dict()
 
 
 @case("checkers that are not on disk leave the gates not-run and unavailable, not passed")
@@ -148,8 +167,7 @@ def _():
         assert j.outcome == UNKNOWN, j.as_dict()
         assert all(g.result == NOT_RUN for g in j.gates), j.as_dict()
         # The instrument was missing, which is the state that must never be composed as a gate
-        # that did not apply. The two semantic gates have no checker to miss and had nothing to
-        # judge in an empty directory, which is the other state.
+        # that did not apply.
         checkers = [g for g in j.gates if g.check in docs_guardrails.CHECKER_GATES]
         assert len(checkers) == len(docs_guardrails.CHECKER_GATES), j.as_dict()
         assert all(not g.available for g in checkers), j.as_dict()
@@ -222,6 +240,17 @@ def based_repo(root: str) -> str:
     git(root, "add", "-A")
     git(root, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
     return git(root, "rev-parse", "HEAD")
+
+
+@case("content_preserved finds the frontmatter's end where the stub reader finds it")
+def _():
+    for fence in (b"---", b"--- ", b"---\t"):
+        page = b"---\ntitle: x\n" + fence + b"\n\n# Body\n"
+        assert preservation.body(page) == b"# Body\n", (fence, preservation.body(page))
+        assert adr_links._split_frontmatter(page.decode())[1] == ["", "# Body"], fence
+    assert preservation.body(b"---\ntitle: x\n---") == b""
+    assert preservation.body(b"---\nnever closed\n") == b"---\nnever closed\n"
+    assert preservation.body(b"# No frontmatter\n") == b"# No frontmatter\n"
 
 
 @case("content_preserved does not apply when the task names nothing to keep")
