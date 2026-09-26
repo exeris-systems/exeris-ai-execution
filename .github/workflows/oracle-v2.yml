@@ -1,0 +1,92 @@
+# The second generation's calibration, re-run where the published file can be checked against it.
+#
+# `guardrails.yml`'s `oracle calibration` job checks the first generation, which needs a corpus and
+# the two shared checkouts. The second generation reads link stubs through the Exeris MCP server,
+# so its self-test also needs that server BUILT — a Node toolchain and a package install the other
+# job has no reason to carry. It lives in a file of its own for a second reason: `guardrails.yml`
+# is the file the organisation's review enters through, and a change to it is one the review
+# cannot read.
+#
+# THE BRIDGE IS THE ONE THE PUBLISHED FILE NAMES. `oracle-selftest-v2.json` records the version and
+# commit of the server its result was measured through; this job builds that commit, so the pin
+# has one home and a re-run measures the instrument that was published rather than whatever the
+# bridge's default branch holds today.
+name: oracle-v2
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: oracle-v2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  calibration:
+    name: oracle v2 calibration
+    runs-on: ubuntu-latest
+    env:
+      # Where this job's checkouts land, as `guardrails.yml`'s oracle job names them.
+      EXERIS_GUARDRAILS: .guardrails
+      EXERIS_AGENTS_TOOLS: .agents-tools/tools
+      PUBLISHED: oracles/docs-guardrails/oracle-selftest-v2.json
+    steps:
+      - uses: actions/checkout@v7
+      - name: The bridge the published calibration was measured through
+        id: pin
+        run: |
+          set -euo pipefail
+          commit=$(jq -r '.bridge.commit // empty' "$PUBLISHED")
+          if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::$PUBLISHED names no bridge commit, so there is no instrument to rebuild"
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "::notice::rebuilding exeris-ai-bridge at $commit ($(jq -r '.bridge.version' "$PUBLISHED"))"
+      # NEITHER OF THE TWO BELOW IS `continue-on-error`, for the reason `guardrails.yml` gives: a
+      # judgement made without a checker on disk is `UNKNOWN` by construction, and a calibration
+      # scored in that state measures what the runner failed to fetch.
+      - name: The shared guardrails (exeris-systems/.github)
+        uses: actions/checkout@v7
+        with: { repository: exeris-systems/.github, path: .guardrails }
+      - name: The agent bundle (exeris-systems/exeris-agents)
+        uses: actions/checkout@v7
+        with: { repository: exeris-systems/exeris-agents, path: .agents-tools }
+      # `_`-prefixed, as `guardrails.yml` does it: the shared taxonomy reads a "_" directory as
+      # working material, so neither checkout is read as this repository's corpus.
+      - name: The bridge, at that commit
+        uses: actions/checkout@v7
+        with:
+          repository: exeris-systems/exeris-ai-bridge
+          ref: ${{ steps.pin.outputs.commit }}
+          path: _bridge
+      - uses: actions/setup-node@v7
+        with: { node-version: '22' }
+      - name: Build the bridge
+        working-directory: _bridge
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: The corpus the mutants are built from
+        id: corpus
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with: { repository: exeris-systems/exeris-docs, path: _corpus }
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.14' }
+      - run: "pip install --quiet --only-binary=:all: pyyaml==6.0.3 jsonschema==4.26.0"
+      - name: The mutation suite, against the published calibration
+        if: ${{ !cancelled() && steps.corpus.outcome == 'success' }}
+        # `--check` recomputes and compares instead of rewriting, as the first generation's step
+        # does: CI's question is whether the published file is still true.
+        run: |
+          python3 -m oracles.docs_mutation_v2 --corpus _corpus \
+            --bridge _bridge/dist/server.js --out "$PUBLISHED" --check
+      - name: Say so where the corpus was not available
+        if: ${{ !cancelled() && steps.corpus.outcome != 'success' }}
+        run: >-
+          echo "::notice::the corpus could not be fetched, so the second generation's mutation
+          suite did not run here and its published calibration stands unverified by this run"
