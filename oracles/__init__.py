@@ -98,11 +98,18 @@ class Judgement:
 
     `oracle_id` and `oracle_version` are the two halves a row carries beside the outcome, because a
     verdict is only interpretable against the version of the rules that produced it.
+
+    `instrument` names what the judgement read beyond the checkout and the checkers — a context
+    adapter's version and commit — where one was used. A gate that read the registry through a
+    server answers for that server's reading of it, so the server is part of what produced the
+    verdict. It is absent from `as_dict` when nothing was used, which keeps a judgement that used
+    nothing identical to one made before the field existed.
     """
 
     oracle_id: str
     oracle_version: str
     gates: tuple[Gate, ...]
+    instrument: dict | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "gates", tuple(self.gates))
@@ -118,8 +125,11 @@ class Judgement:
         return tuple(g.check for g in self.gates if g.result != NOT_RUN)
 
     def as_dict(self) -> dict:
-        return {"oracle_id": self.oracle_id, "oracle_version": self.oracle_version,
-                "gates": [g.as_dict() for g in self.gates], "outcome": self.outcome}
+        shape = {"oracle_id": self.oracle_id, "oracle_version": self.oracle_version,
+                 "gates": [g.as_dict() for g in self.gates], "outcome": self.outcome}
+        if self.instrument:
+            shape["instrument"] = self.instrument
+        return shape
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.as_dict(), indent=indent, ensure_ascii=False)
