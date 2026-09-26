@@ -9,13 +9,25 @@ on:
     # labeled/unlabeled matter: adr-conventions rule 9 requires the `adr` label on a PR that
     # amends an ADR, so adding the label after a red run has to re-run the gate.
     types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+  # A PERSON'S APPROVAL IS A HUMAN REVIEW (ADR-087 §B.8), and it has to reach the required check as
+  # an event of its own: the check is read from the newest run on the head commit, so an approval no
+  # run follows would green nothing until something else happened. `dismissed` because withdrawing
+  # one has to turn the check back. Every job runs on it, because the newest run is the one the
+  # required checks are read from; the model does not start on one.
+  pull_request_review:
+    types: [submitted, dismissed]
 concurrency:
   group: guardrails-${{ github.event.pull_request.number }}
   # Not `true`: when the review publishes it removes the review label, and that removal is an
   # `unlabeled` event whose run would cancel the run still publishing. Bot-triggered runs queue
   # instead of cancelling; human pushes still collapse. Measured on exeris-systems/.github#35, where
   # the cancel arrived in the same second the publishing job finished.
-  cancel-in-progress: ${{ !endsWith(github.actor, '[bot]') }}
+  #
+  # AND NOT ON A REVIEW: a review changes no diff, so it has nothing newer to put in place of the
+  # run already working, and approving beside a review that is still running would otherwise
+  # cancel it. It queues instead, and reads the approval when it runs.
+  cancel-in-progress: >-
+    ${{ github.event_name != 'pull_request_review' && !endsWith(github.actor, '[bot]') }}
 # A called workflow can only narrow the caller's permissions, never raise them, so this block must
 # be the UNION of what every job below declares — except a job that carries its own `permissions:`
 # key, which replaces this workflow-level grant for that job rather than adding to it, and must then
@@ -137,6 +149,11 @@ jobs:
       # CLIs need the shared guardrails, the agent bundle and a corpus — three checkouts this step
       # does not have. They run in the `oracle` job below, where those exist.
       repo-routine: docs/repo-review-rules.md
+      # THE ROUTINE IN PARTS, each part its own model run, composed into one verdict and one
+      # comment with a section per part. `pr` and `repo` run on every pull request, and `repo-checks`
+      # below runs in the `repo` leg alone; `docs`, `records`, `code-docs` and `code` run only where
+      # the diff has their files. A part that leaves no verdict makes the check red.
+      review-in-parts: true
       repo-checks: python3 tools/inbox_validate_suite.py; python3 tools/inbox_validate.py --root .; python3 tools/oracle_suite.py
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
