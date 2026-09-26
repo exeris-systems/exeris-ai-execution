@@ -1,0 +1,112 @@
+{
+  "suite": "docs-mutation-v2",
+  "run_at": "2026-09-24T06:05:51Z",
+  "status": "pass",
+  "result": "11/11",
+  "corpus": {
+    "repository": "exeris-systems/exeris-docs",
+    "commit": "77642aa3009b9f71499085aba540f08f1c471ab9"
+  },
+  "guardrails_commit": "985b73d5b644db8b2c1d9c0eded72f33a0931e97",
+  "agents_tools_commit": "abfdbe5336e3c29b807241b0bb00a6091cb42fea",
+  "bridge": {
+    "version": "0.6.0",
+    "commit": "6d01b5609cd1a0fb7e72edc9751ac8e6f18c85d4"
+  },
+  "clean_corpus": {
+    "expected": "TRUE_DONE",
+    "detail": "docs/adr/ADR-001.link.md names ADR-001 as the record does",
+    "observed": "TRUE_DONE",
+    "ok": true
+  },
+  "mutants": [
+    {
+      "id": 1,
+      "gate": "registry_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (registry_check)",
+      "ok": true,
+      "detail": "adr/ADR-999-a-number-with-no-registry-row.md has no row in adr-index.md"
+    },
+    {
+      "id": 2,
+      "gate": "registry_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (registry_check)",
+      "ok": true,
+      "detail": "a registry row links to adr/ADR-001-cloud-native-and-agnostic-infrastructure-strategy-not-on-disk.md, which is not on disk"
+    },
+    {
+      "id": 3,
+      "gate": "agents_render_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (agents_render_check)",
+      "ok": true,
+      "detail": ".claude/agents/exeris-docs-adr-registry-keeper.md differs from what the renderer emits"
+    },
+    {
+      "id": 4,
+      "gate": "agents_bundle_verify",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (agents_file_check+agents_bundle_verify)",
+      "ok": true,
+      "detail": ".agents/vendor/exeris-agents-2.1.0/policies/agent-safety-and-autonomy.md no longer matches the pinned digest"
+    },
+    {
+      "id": 5,
+      "gate": "frontmatter_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (frontmatter_check)",
+      "ok": true,
+      "detail": "adr/ADR-001-cloud-native-and-agnostic-infrastructure-strategy.md carries the deprecated visibility value"
+    },
+    {
+      "id": 6,
+      "gate": "frontmatter_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (frontmatter_check)",
+      "ok": true,
+      "detail": "b2b-technical-whitepaper.md is narrative and declares no last-verified"
+    },
+    {
+      "id": 7,
+      "gate": "agents_file_check",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (agents_file_check+agents_render_check)",
+      "ok": true,
+      "detail": "the exeris-docs-adr-registry-keeper profile declares an output schema that is not on disk"
+    },
+    {
+      "id": 8,
+      "gate": "every gate",
+      "expected": "UNKNOWN",
+      "observed": "UNKNOWN",
+      "ok": true,
+      "detail": "an emptied corpus and a path that is not there"
+    },
+    {
+      "id": 9,
+      "gate": "content_preserved",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (content_preserved)",
+      "ok": true,
+      "detail": "adr/ADR-001-cloud-native-and-agnostic-infrastructure-strategy.md keeps its frontmatter and loses its last 5 body lines"
+    },
+    {
+      "id": 10,
+      "gate": "adr_links_resolve",
+      "expected": "FALSE_DONE",
+      "observed": "FALSE_DONE (adr_links_resolve)",
+      "ok": true,
+      "detail": "docs/adr/ADR-001.link.md names ADR-001 by the title of ADR-002"
+    },
+    {
+      "id": 11,
+      "gate": "adr_links_resolve",
+      "expected": "UNKNOWN",
+      "observed": "UNKNOWN",
+      "ok": true,
+      "detail": "docs/adr/ADR-001.link.md names ADR-001 as the record does"
+    }
+  ]
+}
