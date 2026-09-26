@@ -84,10 +84,10 @@ below 11/11, or whose clean copy is not `TRUE_DONE`, publishes `status: fail`, a
 every documentation row written while that stands is `UNKNOWN` — the same mechanism, running in the
 direction it was built to run.
 
-The `oracle calibration` job re-checks v1 on every pull request. v2 needs the bridge built, which
-that job does not do, so the v2 file is **checkable, not checked** in CI: it is re-run by hand with
-`python3 -m oracles.docs_mutation_v2 --corpus <exeris-docs> --out
-oracles/docs-guardrails/oracle-selftest-v2.json --bridge <dist/server.js> --check`.
+The `oracle calibration` job re-checks v1 on every pull request, and `oracle-v2.yml` re-checks v2:
+it builds `exeris-ai-bridge` at the commit the published v2 file names — so the pin has one home —
+and runs `python3 -m oracles.docs_mutation_v2 --corpus <exeris-docs> --bridge <dist/server.js>
+--out oracles/docs-guardrails/oracle-selftest-v2.json --check`. Neither job is a required check.
 
 `oracle.version` is the agent-bundle version pinned by the checkout that was judged, because the
 gates are that bundle's rules. A checkout pinning none is judged all the same and the version
