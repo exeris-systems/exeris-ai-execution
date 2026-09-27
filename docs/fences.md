@@ -34,6 +34,9 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | `2026-09-23-harness-claude-oracle3-cc-2-1-280` | 2026-09-23 | `harness-claude-oracle3` | Rows written for an arm driven by `exeris-agent drive` with up to three oracle feedback rounds, Claude Code `2.1.280` against a vendor's model. | See *The harness fences* below. |
 | `2026-09-23-harness-claude-oracle3-cc-2-1-280-w-4c856523d61d` | 2026-09-23 | `harness-claude-oracle3` | The same, for the arm serving the local weights whose digest begins `4c856523d61d`. | See *The harness fences* below. |
 | `2026-09-23-harness-antigravity-oracle3-cc-1-2-8` | 2026-09-23 | `harness-antigravity-oracle3` | The same loop for an arm running Antigravity `1.2.8`, resumed through its conversation id. | See *The harness fences* below. |
+| `2026-09-24-harness-claude-oracle3-v2-mcp-cc-2-1-281` | 2026-09-24 | `harness-claude-oracle3-v2-mcp` | Rows for an arm driven with up to three oracle rounds, judged by docs-oracle v2, with the pinned Exeris MCP server, Claude Code `2.1.281` against a vendor's model. | See *The harness fences* below. |
+| `2026-09-24-harness-claude-oracle3-v2-mcp-cc-2-1-281-w-4c856523d61d` | 2026-09-24 | `harness-claude-oracle3-v2-mcp` | The same, for the arm serving the local weights whose digest begins `4c856523d61d`. | See *The harness fences* below. |
+| `2026-09-24-harness-antigravity-oracle3-v2-mcp-cc-1-2-9` | 2026-09-24 | `harness-antigravity-oracle3-v2-mcp` | The same loop, oracle and server for an arm running Antigravity `1.2.9`, whose MCP configuration is its user-level one, verified to name the pinned server. | See *The harness fences* below. |
 
 ## The backfill fences
 
@@ -102,6 +105,20 @@ session's, so a row under such a fence reads as cost to the outcome the loop end
 The oracle's prompts are the instrument speaking, not a person: they are excluded from
 `execution.human_prompts`, and the rounds actually used are kept beside the row in the run's
 staging, because the row has no field for them.
+
+**Oracle v2 and the shared server.** A `-v2` producer's rows are judged by docs-oracle v2, which
+adds to v1's structural gates a check that the task's preserved documents kept their prose and a
+check that every ADR link stub names its record, read through the Exeris MCP server; its calibration
+is `docs-mutation-v2`. A `-mcp` producer's arms had that same server as a tool, one pinned build for
+every arm, its version and commit in the run's manifest. Both are instrument state: a row judged by
+v1 and a row judged by v2 measure different things, and an arm that could ask the registry and one
+that could not ran under different conditions. The Antigravity arm's server comes from that client's
+user-level configuration, which the harness requires to name the pinned build exactly, and it
+exposes every tool the server lists where the Claude Code arms are given the three `docs-*` tools. A
+driven run under these producers that reaches `TRUE_DONE` is then asked, in the same session, for its
+pull request's body, and the organisation's template check is run over it with its findings sent
+back for up to two rounds; those rounds are part of what the row measures, because the run is done
+when its pull request can be opened.
 
 ## The grammar of a fence id
 
