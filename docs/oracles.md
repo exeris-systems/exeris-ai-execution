@@ -4,7 +4,7 @@ type: reference
 visibility: public
 owning-repo: exeris-ai-execution
 status: active
-last-verified: 2026-09-26
+last-verified: 2026-09-30
 ---
 
 # Oracles a producer may name
