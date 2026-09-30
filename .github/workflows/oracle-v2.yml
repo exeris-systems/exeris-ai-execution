@@ -11,13 +11,16 @@
 # commit of the server its result was measured through; this job builds that commit, so the pin
 # has one home and a re-run measures the instrument that was published rather than whatever the
 # bridge's default branch holds today.
+#
+# ONLY ON A PULL REQUEST. The job installs and builds another repository's package, which is code
+# this repository does not review. A pull request's run is sandboxed from the default branch's
+# cache; a push to `main` or a manual dispatch is not, and building foreign code there is the cache
+# poisoning a run of this job must never be able to do. Every change to `main` arrives through a
+# pull request, which is where the published file is checked.
 name: oracle-v2
 
 on:
   pull_request:
-  push:
-    branches: [main]
-  workflow_dispatch:
 
 concurrency:
   group: oracle-v2-${{ github.event.pull_request.number || github.ref }}
@@ -69,7 +72,9 @@ jobs:
         with: { node-version: '22' }
       - name: Build the bridge
         working-directory: _bridge
-        run: npm ci --no-audit --no-fund && npm run build
+        # No lifecycle script of any dependency runs: the build is the package's own `build`, invoked
+        # by name, and nothing a dependency declares for install time is needed for it.
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: The corpus the mutants are built from
         id: corpus
         continue-on-error: true
