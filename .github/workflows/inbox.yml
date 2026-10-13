@@ -58,7 +58,16 @@ jobs:
           python - <<'PY'
           import json, pathlib, sys
           from jsonschema import Draft202012Validator
-          schemas = {k: Draft202012Validator(json.loads(pathlib.Path(f"schemas/{v}").read_text()))
+          from referencing import Registry
+          from referencing.jsonschema import DRAFT202012
+          # The judgement schema reuses the run schema's fields by a relative `$ref`, so every
+          # schema in `schemas/` is registered under its file name: a validator built without the
+          # registry cannot resolve one and stops at the first judgement it reads.
+          documents = {path.name: json.loads(path.read_text())
+                       for path in pathlib.Path("schemas").glob("*.schema.json")}
+          registry = Registry().with_resources(
+              (name, DRAFT202012.create_resource(doc)) for name, doc in documents.items())
+          schemas = {k: Draft202012Validator(documents[v], registry=registry)
                      for k, v in (("runs", "run-record.schema.json"),
                                   ("judgements", "judgement-record.schema.json"))}
           bad = 0
