@@ -40,7 +40,7 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | `2026-10-13-harness-claude-oracle3-v2-mcp-cc-2-1-296` | 2026-10-13 | `harness-claude-oracle3-v2-mcp` | Rows for an arm driven with up to three oracle rounds, judged by docs-oracle v2, with the pinned Exeris MCP server, Claude Code `2.1.296` against a vendor's model. | See *The harness fences* below. |
 | `2026-10-13-harness-claude-oracle3-v2-mcp-cc-2-1-296-w-4c856523d61d` | 2026-10-13 | `harness-claude-oracle3-v2-mcp` | The same, for the arm serving the local weights whose digest begins `4c856523d61d`. | See *The harness fences* below. |
 | `2026-10-13-harness-antigravity-oracle3-v2-mcp-cc-1-3-3` | 2026-10-13 | `harness-antigravity-oracle3-v2-mcp` | The same loop, oracle and server for an arm running Antigravity `1.3.3`, whose MCP configuration is its user-level one, verified to name the pinned server. | See *The harness fences* below. |
-| `2026-10-13-harness-antigravity-oracle3-v2-mcp-cc-1-3-4` | 2026-10-13 | `harness-antigravity-oracle3-v2-mcp` | The same loop, oracle and server for an arm running Antigravity `1.3.4`, whose MCP configuration is its user-level one, verified to name the pinned server. | See *The harness fences* below. |
+| `2026-10-13-harness-antigravity-oracle3-v2-mcp-cc-1-3-4` | 2026-10-13 | `harness-antigravity-oracle3-v2-mcp` | The same loop, oracle and server for an arm running Antigravity `1.3.4` in a home of its own the harness writes per run: its MCP server is the pinned one and nothing else, and its command permissions are a fixed list matching the Claude Code arms' — not the person's own Antigravity configuration, which the earlier Antigravity fences read. | See *The harness fences* below. |
 
 ## The backfill fences
 
@@ -118,7 +118,7 @@ every arm, its version and commit in the run's manifest. Both are instrument sta
 v1 and a row judged by v2 measure different things, and an arm that could ask the registry and one
 that could not ran under different conditions. The Antigravity arm's server comes from that client's
 user-level configuration, which the harness requires to name the pinned build exactly, and it
-exposes every tool the server lists where the Claude Code arms are given the three `docs-*` tools. A
+exposes every tool the server lists where the Claude Code arms are given the three `docs-*` tools. From the 1.3.4 fence the Antigravity arm runs in a home of its own the harness writes per run, so its MCP server and its command permissions are the harness's — the same git and listing commands and the same three `docs-*` tools as the Claude Code arms — rather than whatever the person's own configuration had accumulated; in that client's print mode a command outside the list ends the pass, and the denial is counted. A
 driven run under these producers that reaches `TRUE_DONE` is then asked, in the same session, for its
 pull request's body, and the organisation's template check is run over it with its findings sent
 back for up to two rounds; those rounds are part of what the row measures, because the run is done
