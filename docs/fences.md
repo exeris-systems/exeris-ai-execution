@@ -40,6 +40,7 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | `2026-10-13-harness-claude-oracle3-v2-mcp-cc-2-1-296` | 2026-10-13 | `harness-claude-oracle3-v2-mcp` | Rows for an arm driven with up to three oracle rounds, judged by docs-oracle v2, with the pinned Exeris MCP server, Claude Code `2.1.296` against a vendor's model. | See *The harness fences* below. |
 | `2026-10-13-harness-claude-oracle3-v2-mcp-cc-2-1-296-w-4c856523d61d` | 2026-10-13 | `harness-claude-oracle3-v2-mcp` | The same, for the arm serving the local weights whose digest begins `4c856523d61d`. | See *The harness fences* below. |
 | `2026-10-13-harness-antigravity-oracle3-v2-mcp-cc-1-3-3` | 2026-10-13 | `harness-antigravity-oracle3-v2-mcp` | The same loop, oracle and server for an arm running Antigravity `1.3.3`, whose MCP configuration is its user-level one, verified to name the pinned server. | See *The harness fences* below. |
+| `2026-10-13-harness-antigravity-oracle3-v2-mcp-cc-1-3-4` | 2026-10-13 | `harness-antigravity-oracle3-v2-mcp` | The same loop, oracle and server for an arm running Antigravity `1.3.4`, whose MCP configuration is its user-level one, verified to name the pinned server. | See *The harness fences* below. |
 
 ## The backfill fences
 
