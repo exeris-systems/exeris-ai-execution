@@ -93,6 +93,11 @@ jobs:
     name: report a red main
     needs: [cross-file, schema]
     if: ${{ failure() && github.event_name == 'push' }}
+    # One at a time, whatever commit each run read: two red pushes in quick succession would
+    # otherwise both find no open issue and both file one.
+    concurrency:
+      group: inbox-main-red
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -107,7 +112,9 @@ jobs:
         run: |
           set -euo pipefail
           key="inbox-main-red"
-          open=$(gh api "repos/$REPO/issues?state=open&labels=triage&per_page=100" --paginate \
+          # By the key in the body alone: a label a person later removes or renames must not make
+          # the next red push file a second issue.
+          open=$(gh api "repos/$REPO/issues?state=open&per_page=100" --paginate \
                  | jq -s 'add // []' \
                  | jq --arg k "Key: \`$key\`" '[.[] | select(.pull_request == null)
                                                   | select((.body // "") | contains($k))] | length')
