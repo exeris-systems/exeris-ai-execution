@@ -1,12 +1,20 @@
 # The inbox's own gate — ADR-086 §G.33. `inbox/README.md` promises that a non-conforming row is
 # "reported back to the producer"; this is what makes that true, and it runs here as well as in the
-# producer (ADR-087 §C.15), so a bad row is caught before it is proposed and again before it lands.
+# producer (ADR-087 §C.15).
+#
+# TWICE, ON TWO EVENTS. On a pull request it is the required check, as for any change to this
+# repository. On a push to `main` it is the second reading of what the inbox App committed there
+# directly: the producer validated each row before writing it, and this run says whether `main`
+# as a whole still passes. A red run on `main` is reported, never reverted — the inbox is appended
+# to and never rewritten — so the `report` job files one issue and leaves the rows where they are.
 name: inbox
 on:
   pull_request:
     types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+  push:
+    branches: [main]
 concurrency:
-  group: inbox-${{ github.event.pull_request.number }}
+  group: inbox-${{ github.event.pull_request.number || github.sha }}
   # Not `true`: a bot-triggered run queues rather than cancelling one that is publishing.
   cancel-in-progress: ${{ !endsWith(github.actor, '[bot]') }}
 permissions:
@@ -50,7 +58,16 @@ jobs:
           python - <<'PY'
           import json, pathlib, sys
           from jsonschema import Draft202012Validator
-          schemas = {k: Draft202012Validator(json.loads(pathlib.Path(f"schemas/{v}").read_text()))
+          from referencing import Registry
+          from referencing.jsonschema import DRAFT202012
+          # The judgement schema reuses the run schema's fields by a relative `$ref`, so every
+          # schema in `schemas/` is registered under its file name: a validator built without the
+          # registry cannot resolve one and stops at the first judgement it reads.
+          documents = {path.name: json.loads(path.read_text())
+                       for path in pathlib.Path("schemas").glob("*.schema.json")}
+          registry = Registry().with_resources(
+              (name, DRAFT202012.create_resource(doc)) for name, doc in documents.items())
+          schemas = {k: Draft202012Validator(documents[v], registry=registry)
                      for k, v in (("runs", "run-record.schema.json"),
                                   ("judgements", "judgement-record.schema.json"))}
           bad = 0
@@ -68,3 +85,48 @@ jobs:
           print(f"\n## inbox schema\n\nChecked **{seen}** record(s) — **{bad} error(s)**.")
           sys.exit(1 if bad else 0)
           PY
+
+  # ONE ISSUE FOR A RED `main`, keyed so that every later red push finds it rather than filing
+  # another. The rows stay: what went wrong is the producer's to fix (ADR-087 §C.15), and the issue
+  # names the commit that was read so the fix can start from it.
+  report:
+    name: report a red main
+    needs: [cross-file, schema]
+    if: ${{ failure() && github.event_name == 'push' }}
+    # One at a time, whatever commit each run read: two red pushes in quick succession would
+    # otherwise both find no open issue and both file one.
+    concurrency:
+      group: inbox-main-red
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: File one issue, or find the one already open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          key="inbox-main-red"
+          # By the key in the body alone: a label a person later removes or renames must not make
+          # the next red push file a second issue.
+          open=$(gh api "repos/$REPO/issues?state=open&per_page=100" --paginate \
+                 | jq -s 'add // []' \
+                 | jq --arg k "Key: \`$key\`" '[.[] | select(.pull_request == null)
+                                                  | select((.body // "") | contains($k))] | length')
+          if [ "$open" -gt 0 ]; then
+            echo "::notice::an open issue already carries the key $key, so none was filed"
+            exit 0
+          fi
+          printf '%s\n' "Key: \`$key\`" "" \
+            "The inbox's own validator is red on \`main\` at $SHA: $RUN" "" \
+            "Rows reach \`main\` as commits by the inbox App, validated at the producer first (ADR-087 §C.15). Nothing is reverted; the run above names the file and the rule, and the fix belongs to the producer that wrote the row." \
+            > body.md
+          gh api -X POST "repos/$REPO/issues" \
+            -f "title=inbox: main fails its own validator" \
+            -F body=@body.md -f "labels[]=triage" --silent
+
