@@ -27,8 +27,14 @@ here may say which model to use. Everything else in this repository follows from
   in. See `inbox/README.md` for its convention.
 - `tools/` — the tooling that reads the inbox: `inbox_validate.py` enforces the cross-file rules
   (ADR-086 §G.34) no single schema can see, `inbox_validate_suite.py` is its case suite, and
-  `schema_cases.py` is the run-record schema's own case suite. Each module's docstring is the home
-  for what it does and why. `.github/workflows/inbox.yml` runs all three.
+  `schema_cases.py` is the run-record schema's own case suite. `price_list_validate.py` does the
+  same for `price-lists/`, and `api_equivalent.py` derives a run's api-equivalent figure from its
+  event stream and the list in force, printing it and writing nothing; each has a `_suite.py` of
+  its cases. Each module's docstring is the home for what it does and why.
+  `.github/workflows/inbox.yml` runs all of them.
+- `price-lists/` and `schemas/price-list.schema.json` — vendors' unit prices by date, held as
+  instrument state. A figure derived from a list is imputed, never written onto a row; what may be
+  derived, and when it may be quoted, is in `price-lists/README.md`.
 - `oracles/` — the oracle interface and the first oracle behind it. `oracles/__init__.py` owns how
   gates compose into an outcome and nothing else does (ADR-086 §E.19); `oracles/docs_guardrails.py`
   runs the L1 guardrail suite over a checkout and reports a judgement; `oracles/docs_mutation_v1.py`

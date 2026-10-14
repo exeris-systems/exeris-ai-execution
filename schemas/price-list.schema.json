@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Price list",
+  "description": "One vendor's published unit prices, as they stood on one date. A price list is instrument state, not data about a run: no row carries a figure computed from it (ADR-086 §C.14), and what may be derived from it — an api-equivalent figure, at analysis time, from a row's event stream and the list in force at the row's `started_at` — is stated in `price-lists/README.md`.\n\nA list is never edited once published. A changed price, or a correction to a wrong one, is a new list with its own `effective_date`, so every figure ever derived names the list it came from and can be derived again from the same bytes.\n\nWhat this schema cannot see — that the file sits at `price-lists/<vendor>/<effective_date>.json`, that `price_list_id` is those two joined, that tiers ascend — is checked by `tools/price_list_validate.py`.\n\nThis file carries no `$id`: every reference to it is a relative path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "price_list_id",
+    "vendor",
+    "effective_date",
+    "source",
+    "unit",
+    "calibration",
+    "models"
+  ],
+  "properties": {
+    "price_list_id": {
+      "description": "`<vendor>-<effective_date>`, the label every derived figure carries. Its agreement with the two fields it is made of is a comparison between siblings, so the validator holds it, not this pattern.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*-[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "maxLength": 96
+    },
+    "vendor": {
+      "description": "The vendor whose prices these are, spelled as a row's `agent.provider` is: a list is selected for a row by that value, so the two alphabets are one.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "effective_date": {
+      "description": "The first day these prices are in force for derivation. A row is priced by the list with the latest `effective_date` not after its `started_at`'s UTC date; a row older than every list has no list in force and is not priced.",
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "source": {
+      "description": "Where the prices were read, and on which day. The page is the vendor's and may change; the list is the record of what it said.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "retrieved_at"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "maxLength": 512
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      }
+    },
+    "unit": {
+      "description": "One unit for every price in the file, fixed so that no figure is ever read at the wrong scale.",
+      "const": "USD per 1,000,000 tokens"
+    },
+    "calibration": {
+      "description": "Whether a figure derived from this list has been shown to agree with what the vendor bills: paired arms, one under API billing and one under a subscription, run on the same task. A derived figure is quotable only from a list whose status is `pass`; under `not-run` or `fail` it may be computed and inspected, never quoted as what a run would have cost.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suite",
+        "status",
+        "result"
+      ],
+      "properties": {
+        "suite": {
+          "description": "The calibration suite that was run, or `none` where none has been.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "not-run"
+          ]
+        },
+        "result": {
+          "description": "What the suite found, in a few words, or `none` where it was not run.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "run_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "description": "A suite that ran says which suite and when; one that did not names none.",
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not-run"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "suite": {
+                "const": "none"
+              },
+              "result": {
+                "const": "none"
+              }
+            },
+            "not": {
+              "required": [
+                "run_at"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "run_at"
+            ],
+            "properties": {
+              "suite": {
+                "not": {
+                  "const": "none"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "models": {
+      "description": "Per model, the tiers its prices come in. A model id is spelled as a row's `agent.model_id` and the stream's `message.model` are, which the validator checks against that field's own rule.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tiers"
+        ],
+        "properties": {
+          "tiers": {
+            "description": "Ascending by `max_prompt_tokens`, the last tier unbounded (`null`). A request's prompt size — its input, cache-read and cache-write tokens together — selects the first tier whose bound it does not exceed, so a bound is inclusive. A model with one price has one tier, and it is the unbounded one.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/tier"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "price": {
+      "description": "A non-negative decimal written as a string. A string because a price is exact and a JSON number is read as a binary float by most parsers: `0.10` would become a value that is not one tenth, and the error compounds over millions of tokens. Read it with `decimal.Decimal`.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,5})(\\.[0-9]{1,6})?$"
+    },
+    "tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_prompt_tokens",
+        "input",
+        "output",
+        "cache_write_5m",
+        "cache_write_1h",
+        "cache_read"
+      ],
+      "properties": {
+        "max_prompt_tokens": {
+          "description": "The largest prompt, inclusive, this tier prices; `null` on the last tier only.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "input": {
+          "$ref": "#/$defs/price"
+        },
+        "output": {
+          "$ref": "#/$defs/price"
+        },
+        "cache_write_5m": {
+          "description": "A cache write with the five-minute lifetime. Priced apart from the one-hour write because the vendor prices them apart.",
+          "$ref": "#/$defs/price"
+        },
+        "cache_write_1h": {
+          "description": "A cache write with the one-hour lifetime.",
+          "$ref": "#/$defs/price"
+        },
+        "cache_read": {
+          "$ref": "#/$defs/price"
+        }
+      }
+    }
+  }
+}

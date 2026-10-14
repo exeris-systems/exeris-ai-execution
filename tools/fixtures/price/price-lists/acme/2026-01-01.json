@@ -1,0 +1,49 @@
+{
+  "price_list_id": "acme-2026-01-01",
+  "vendor": "acme",
+  "effective_date": "2026-01-01",
+  "source": {
+    "url": "https://example.invalid/acme/pricing",
+    "retrieved_at": "2026-01-01"
+  },
+  "unit": "USD per 1,000,000 tokens",
+  "calibration": {
+    "suite": "none",
+    "status": "not-run",
+    "result": "none"
+  },
+  "models": {
+    "acme-tiered": {
+      "tiers": [
+        {
+          "max_prompt_tokens": 100000,
+          "input": "1",
+          "output": "2",
+          "cache_write_5m": "3",
+          "cache_write_1h": "4",
+          "cache_read": "5"
+        },
+        {
+          "max_prompt_tokens": null,
+          "input": "10",
+          "output": "20",
+          "cache_write_5m": "30",
+          "cache_write_1h": "40",
+          "cache_read": "50"
+        }
+      ]
+    },
+    "acme-flat": {
+      "tiers": [
+        {
+          "max_prompt_tokens": null,
+          "input": "1",
+          "output": "1",
+          "cache_write_5m": "1",
+          "cache_write_1h": "1",
+          "cache_read": "1"
+        }
+      ]
+    }
+  }
+}

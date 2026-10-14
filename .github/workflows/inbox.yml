@@ -34,6 +34,13 @@ jobs:
       - run: python tools/inbox_validate.py --root .
       - name: The validator's own cases
         run: python tools/inbox_validate_suite.py
+      # A price list is found by where it sits and joined to rows by its model ids, so the rules
+      # that keep both true run beside the inbox's own: they need nothing installed either.
+      - run: python tools/price_list_validate.py --root .
+      - name: The price-list validator's own cases
+        run: python tools/price_list_validate_suite.py
+      - name: The api-equivalent derivation's own cases
+        run: python tools/api_equivalent_suite.py
 
   schema:
     name: schema conformance
@@ -83,6 +90,26 @@ jobs:
                   print(f"::error file={path}::{where}: {err.message}")
                   bad += 1
           print(f"\n## inbox schema\n\nChecked **{seen}** record(s) — **{bad} error(s)**.")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Every price list against its schema
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          from jsonschema import Draft202012Validator
+          validator = Draft202012Validator(
+              json.loads(pathlib.Path("schemas/price-list.schema.json").read_text()))
+          bad = 0
+          seen = 0
+          for path in sorted(pathlib.Path("price-lists").rglob("*.json")):
+              seen += 1
+              doc = json.loads(path.read_text())
+              for err in sorted(validator.iter_errors(doc), key=lambda e: list(e.path)):
+                  where = "/".join(str(p) for p in err.path) or "<root>"
+                  print(f"::error file={path}::{where}: {err.message}")
+                  bad += 1
+          print(f"\n## price-list schema\n\nChecked **{seen}** list(s) — **{bad} error(s)**.")
           sys.exit(1 if bad else 0)
           PY
 

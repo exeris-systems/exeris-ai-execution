@@ -1,0 +1,34 @@
+{
+  "price_list_id": "anthropic-2026-10-14",
+  "vendor": "anthropic",
+  "effective_date": "2026-10-14",
+  "source": {
+    "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "retrieved_at": "2026-10-14"
+  },
+  "unit": "USD per 1,000,000 tokens",
+  "calibration": {"suite": "none", "status": "not-run", "result": "none"},
+  "models": {
+    "claude-fable-5-1": {
+      "tiers": [
+        {"max_prompt_tokens": null, "input": "10", "output": "50", "cache_write_5m": "12.50", "cache_write_1h": "20", "cache_read": "0.25"}
+      ]
+    },
+    "claude-opus-5-5": {
+      "tiers": [
+        {"max_prompt_tokens": null, "input": "4", "output": "20", "cache_write_5m": "5", "cache_write_1h": "8", "cache_read": "0.20"}
+      ]
+    },
+    "claude-sonnet-5-5": {
+      "tiers": [
+        {"max_prompt_tokens": null, "input": "2", "output": "10", "cache_write_5m": "2.50", "cache_write_1h": "4", "cache_read": "0.10"}
+      ]
+    },
+    "claude-haiku-5-5": {
+      "tiers": [
+        {"max_prompt_tokens": 100000, "input": "0.10", "output": "0.50", "cache_write_5m": "0.125", "cache_write_1h": "0.20", "cache_read": "0.01"},
+        {"max_prompt_tokens": null, "input": "0.50", "output": "2.50", "cache_write_5m": "0.625", "cache_write_1h": "1", "cache_read": "0.05"}
+      ]
+    }
+  }
+}
