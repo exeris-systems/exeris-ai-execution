@@ -25,6 +25,10 @@ FIXTURES = os.path.join(HERE, "fixtures", "price")
 CASES: list[tuple[str, object]] = []
 
 
+#: The fixture files every case lays out.
+ROW = "row.json"
+STREAM = "stream.jsonl"
+
 def case(name):
     def register(fn):
         CASES.append((name, fn))
@@ -46,20 +50,21 @@ def derive(root: str, events: list | None = None,
     """Run the tool over the fixtures, with this case's stream and start time where given."""
     lists = os.path.join(root, "price-lists")
     shutil.copytree(os.path.join(FIXTURES, "price-lists"), lists)
-    with open(os.path.join(FIXTURES, "row.json"), encoding="utf-8") as fh:
+    with open(os.path.join(FIXTURES, ROW), encoding="utf-8") as fh:
         row = json.load(fh)
     if started_at is not None:
         row["started_at"] = started_at
-    row_path, stream_path = os.path.join(root, "row.json"), os.path.join(root, "stream.jsonl")
+    row_path, stream_path = os.path.join(root, ROW), os.path.join(root, STREAM)
     with open(row_path, "w", encoding="utf-8") as fh:
         json.dump(row, fh)
     if events is None:
-        shutil.copy(os.path.join(FIXTURES, "stream.jsonl"), stream_path)
+        shutil.copy(os.path.join(FIXTURES, STREAM), stream_path)
     else:
         with open(stream_path, "w", encoding="utf-8") as fh:
             fh.writelines(json.dumps(e) + "\n" for e in events)
-    out = subprocess.run([sys.executable, TOOL, "--row", row_path, "--stream", stream_path,
-                          "--price-lists", lists], capture_output=True, text=True)
+    out = subprocess.run([sys.executable, TOOL, "--base", root, "--row", row_path,
+                          "--stream", stream_path, "--price-lists", lists],
+                         capture_output=True, text=True)
     if out.returncode:
         return out.returncode, out.stdout + out.stderr
     return 0, json.loads(out.stdout)
@@ -210,12 +215,24 @@ def _(root):
 @case("the tool writes nothing beside what it read")
 def _(root):
     derive(root)
-    with open(os.path.join(FIXTURES, "row.json"), encoding="utf-8") as fh:
+    with open(os.path.join(FIXTURES, ROW), encoding="utf-8") as fh:
         original = json.load(fh)
-    with open(os.path.join(root, "row.json"), encoding="utf-8") as fh:
+    with open(os.path.join(root, ROW), encoding="utf-8") as fh:
         assert json.load(fh) == original
-    assert sorted(os.listdir(root)) == ["price-lists", "row.json", "stream.jsonl"], os.listdir(root)
+    assert sorted(os.listdir(root)) == ["price-lists", ROW, STREAM], os.listdir(root)
 
+
+
+@case("a row or a stream outside the base is refused before it is read")
+def _(root):
+    derive(root)
+    base = os.path.join(root, "price-lists")
+    out = subprocess.run([sys.executable, TOOL, "--base", base, "--row", os.path.join(root, ROW),
+                          "--stream", os.path.join(root, STREAM), "--price-lists", base],
+                         capture_output=True, text=True)
+    assert out.returncode == 2, (out.returncode, out.stderr)
+    assert "must lie inside" in out.stderr, out.stderr
+    assert not out.stdout, out.stdout
 
 def main() -> int:
     failures = 0

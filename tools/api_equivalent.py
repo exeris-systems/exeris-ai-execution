@@ -294,12 +294,20 @@ def main() -> int:
     p.add_argument("--row", type=existing_file, required=True, help="a run record")
     p.add_argument("--stream", type=existing_file, required=True,
                    help="the run's event stream, as published or as the client's session log")
+    p.add_argument("--base", type=existing_directory, default=os.curdir,
+                   help="the directory the row and the stream must lie in (the current one by "
+                        "default): a run's staging area, or a clone of the inbox and the streams")
     p.add_argument("--price-lists", type=existing_directory,
                    default=os.path.join(os.path.dirname(HERE), "price-lists"),
                    help="the root holding `<vendor>/<effective_date>.json`")
     args = p.parse_args()
+    row, stream = within(args.row, args.base), within(args.stream, args.base)
+    if row is None or stream is None:
+        print(f"::error title=api_equivalent::the row and the stream must lie inside {args.base}",
+              file=sys.stderr)
+        return 2
     try:
-        out = derive(args.row, args.stream, args.price_lists)
+        out = derive(row, stream, args.price_lists)
     except (Refusal, OSError, json.JSONDecodeError) as exc:
         print(f"::error title=api_equivalent::{exc}", file=sys.stderr)
         return 1

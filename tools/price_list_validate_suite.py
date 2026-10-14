@@ -21,6 +21,10 @@ REPO = os.path.dirname(HERE)
 CASES: list[tuple[str, object]] = []
 
 
+#: The fixture list's file name, and the refusal every tier case expects.
+LIST_FILE = "2026-01-01.json"
+ASCENDING = "ascend strictly"
+
 def case(name):
     def register(fn):
         CASES.append((name, fn))
@@ -58,7 +62,7 @@ def validate(root: str) -> tuple[int, str]:
 
 def refused(root: str, body: dict, words: str, *parts: str) -> None:
     """Write `body` (at the conforming place unless `parts` says otherwise) and expect `words`."""
-    write(root, body, *(parts or ("acme", "2026-01-01.json")))
+    write(root, body, *(parts or ("acme", LIST_FILE)))
     code, text = validate(root)
     assert code == 1, text
     assert words in text, text
@@ -72,7 +76,7 @@ def with_tiers(tiers: list) -> dict:
 
 @case("a conforming list is silent")
 def _(root):
-    write(root, price_list(), "acme", "2026-01-01.json")
+    write(root, price_list(), "acme", LIST_FILE)
     code, text = validate(root)
     assert code == 0, text
     assert "Checked **1** list(s) — **0 error(s)**" in text, text
@@ -94,12 +98,12 @@ def _(_root):
 
 @case("rule 1 — a list outside a vendor directory is selected by nothing")
 def _(root):
-    refused(root, price_list(), "one directory deep", "2026-01-01.json")
+    refused(root, price_list(), "one directory deep", LIST_FILE)
 
 
 @case("rule 1 — nor is one two directories deep")
 def _(root):
-    refused(root, price_list(), "one directory deep", "acme", "old", "2026-01-01.json")
+    refused(root, price_list(), "one directory deep", "acme", "old", LIST_FILE)
 
 
 @case("rule 2 — the name is the date")
@@ -109,7 +113,7 @@ def _(root):
 
 @case("rule 2 — the directory is the vendor")
 def _(root):
-    refused(root, price_list(), "so the directory is the vendor", "other", "2026-01-01.json")
+    refused(root, price_list(), "so the directory is the vendor", "other", LIST_FILE)
 
 
 @case("rule 3 — the id is the vendor and the date joined")
@@ -121,27 +125,27 @@ def _(root):
 
 @case("rule 4 — bounds that descend select two tiers for one prompt")
 def _(root):
-    refused(root, with_tiers([tier(2000), tier(1000), tier(None)]), "ascend strictly")
+    refused(root, with_tiers([tier(2000), tier(1000), tier(None)]), ASCENDING)
 
 
 @case("rule 4 — an equal bound is not an ascent")
 def _(root):
-    refused(root, with_tiers([tier(1000), tier(1000), tier(None)]), "ascend strictly")
+    refused(root, with_tiers([tier(1000), tier(1000), tier(None)]), ASCENDING)
 
 
 @case("rule 4 — a last tier with a bound leaves larger prompts unpriced")
 def _(root):
-    refused(root, with_tiers([tier(1000), tier(2000)]), "ascend strictly")
+    refused(root, with_tiers([tier(1000), tier(2000)]), ASCENDING)
 
 
 @case("rule 4 — an unbounded tier that is not last hides the ones after it")
 def _(root):
-    refused(root, with_tiers([tier(None), tier(None)]), "ascend strictly")
+    refused(root, with_tiers([tier(None), tier(None)]), ASCENDING)
 
 
 @case("rule 4 — a model with no tiers has no price")
 def _(root):
-    refused(root, with_tiers([]), "ascend strictly")
+    refused(root, with_tiers([]), ASCENDING)
 
 
 @case("rule 5 — a price written as a JSON number is read as a float")
