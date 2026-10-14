@@ -1,0 +1,73 @@
+{
+  "accounting": {
+    "mode": "subscription",
+    "usage": {
+      "cache_read_tokens": 1528977,
+      "input_tokens": 130167,
+      "output_tokens": 19754
+    }
+  },
+  "agent": {
+    "harness": {
+      "client": "antigravity",
+      "version": "1.3.4"
+    },
+    "model_id": "gemini-3.8-flash-high",
+    "model_snapshot": "unresolved:gemini-3.8-flash-high",
+    "provider": "google",
+    "system_prompt_sha256": "fdc51a8eb761f6276b6a6071767c3c7db7451af7a2b6a56cb5963e6b481984cc"
+  },
+  "execution": {
+    "capture_level": "full",
+    "event_stream": {
+      "event_count": 138,
+      "ref": "exeris-systems/exeris-ai-execution-streams/streams/2026-10-14/exeris-ai-bridge/01M4WD1HT1J14Q2SG46K1T5NJE.jsonl@17f1b3a2a915a2919089cbe9a5df970e2478e412",
+      "sha256": "63dc22bb6d8def15a0096d5e9fd41266b4eaca2e2ecdeba7e2dfc42f6b4e995d"
+    },
+    "human_prompts": 0,
+    "permission_denials": 4,
+    "principal": {
+      "kind": "app",
+      "login": "exeris-agent[bot]"
+    },
+    "result_commits": [],
+    "tool_calls": 41,
+    "turns": 4,
+    "wall_time_ms": 288000
+  },
+  "instrument": {
+    "capture_version": "0.2.0",
+    "fence": "2026-10-13-harness-antigravity-oracle3-v2-mcp-cc-1-3-4"
+  },
+  "oracle": {
+    "calibration": {
+      "result": "11/11",
+      "run_at": "2026-09-24T06:05:51Z",
+      "status": "pass",
+      "suite": "docs-mutation-v2"
+    },
+    "id": "docs-guardrails",
+    "version": "2.1.0"
+  },
+  "outcome": "FALSE_DONE",
+  "pairing": {
+    "arm": "gemini-3-8-flash",
+    "arms_planned": 3,
+    "baseline": "none",
+    "group_id": "G-001"
+  },
+  "repository_state": {
+    "bundle_version": "2.1.0",
+    "commit": "6d01b5609cd1a0fb7e72edc9751ac8e6f18c85d4",
+    "dirty": false,
+    "repository": "exeris-systems/exeris-ai-bridge",
+    "visibility": "public"
+  },
+  "run_id": "01M4WD1HT1J14Q2SG46K1T5NJE",
+  "started_at": "2026-10-14T05:09:29Z",
+  "workload": {
+    "domain": "docs-sweep",
+    "fingerprint": "reg:T-001",
+    "scope": "docs-only"
+  }
+}

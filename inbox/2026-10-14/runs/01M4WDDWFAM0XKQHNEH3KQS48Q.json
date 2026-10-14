@@ -1,0 +1,76 @@
+{
+  "accounting": {
+    "mode": "subscription",
+    "usage": {
+      "cache_read_tokens": 2142334,
+      "cache_write_tokens": 70436,
+      "input_tokens": 68,
+      "output_tokens": 14284
+    }
+  },
+  "agent": {
+    "harness": {
+      "client": "claude-code",
+      "version": "2.1.299"
+    },
+    "model_id": "claude-opus-5-5",
+    "model_snapshot": "unresolved:claude-opus-5-5",
+    "provider": "anthropic",
+    "system_prompt_sha256": "fdc51a8eb761f6276b6a6071767c3c7db7451af7a2b6a56cb5963e6b481984cc"
+  },
+  "execution": {
+    "capture_level": "full",
+    "event_stream": {
+      "event_count": 212,
+      "ref": "exeris-systems/exeris-ai-execution-streams/streams/2026-10-14/exeris-ai-bridge/01M4WDDWFAM0XKQHNEH3KQS48Q.jsonl@17f1b3a2a915a2919089cbe9a5df970e2478e412",
+      "sha256": "4c02e0f3a52edb503f4379c396b633140442f328d98fe08f438319de6a47380b"
+    },
+    "human_prompts": 0,
+    "permission_denials": 8,
+    "principal": {
+      "kind": "app",
+      "login": "exeris-agent[bot]"
+    },
+    "result_commits": [
+      "1f8503f3e2333ad0f6cbde415154d16c952fb1a5"
+    ],
+    "tool_calls": 45,
+    "turns": 34,
+    "wall_time_ms": 161000
+  },
+  "instrument": {
+    "capture_version": "0.2.0",
+    "fence": "2026-10-14-harness-claude-oracle3-v2-mcp-cc-2-1-299"
+  },
+  "oracle": {
+    "calibration": {
+      "result": "11/11",
+      "run_at": "2026-09-24T06:05:51Z",
+      "status": "pass",
+      "suite": "docs-mutation-v2"
+    },
+    "id": "docs-guardrails",
+    "version": "2.1.0"
+  },
+  "outcome": "TRUE_DONE",
+  "pairing": {
+    "arm": "opus-5-5",
+    "arms_planned": 3,
+    "baseline": "none",
+    "group_id": "G-002"
+  },
+  "repository_state": {
+    "bundle_version": "2.1.0",
+    "commit": "6d01b5609cd1a0fb7e72edc9751ac8e6f18c85d4",
+    "dirty": false,
+    "repository": "exeris-systems/exeris-ai-bridge",
+    "visibility": "public"
+  },
+  "run_id": "01M4WDDWFAM0XKQHNEH3KQS48Q",
+  "started_at": "2026-10-14T05:16:13Z",
+  "workload": {
+    "domain": "docs-sweep",
+    "fingerprint": "reg:T-001",
+    "scope": "docs-only"
+  }
+}
