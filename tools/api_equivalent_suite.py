@@ -223,6 +223,27 @@ def _(root):
 
 
 
+@case("a list in force without the shape a list has is refused, not half-read")
+def _(root):
+    code, out = derive(root)
+    assert code == 0, out
+    lists = os.path.join(root, "price-lists", "acme")
+    for name in os.listdir(lists):
+        path = os.path.join(lists, name)
+        with open(path, encoding="utf-8") as fh:
+            body = json.load(fh)
+        for entry in body["models"].values():
+            for tier in entry["tiers"]:
+                tier.pop("output", None)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(body, fh)
+    out = subprocess.run([sys.executable, TOOL, "--base", root, "--row", os.path.join(root, ROW),
+                          "--stream", os.path.join(root, STREAM), "--price-lists",
+                          os.path.join(root, "price-lists")], capture_output=True, text=True)
+    assert out.returncode == 1, (out.returncode, out.stderr)
+    assert "is not a valid price list" in out.stderr, out.stderr
+    assert "Traceback" not in out.stderr, out.stderr
+
 @case("a row or a stream outside the base is refused before it is read")
 def _(root):
     derive(root)

@@ -272,7 +272,13 @@ def sha256_of(path: str) -> str:
 def derive(row_path: str, stream_path: str, lists: str) -> dict:
     row = read_row(row_path)
     price_list = list_in_force(lists, row["vendor"], row["day"])
-    tally = price_requests(requests(stream_path), price_list.get("models") or {})
+    try:
+        tally = price_requests(requests(stream_path), price_list.get("models") or {})
+    except (KeyError, TypeError, AttributeError, InvalidOperation) as exc:
+        # A list that does not have the shape `price_list_validate.py` admits is refused like any
+        # run this tool will not price, never priced from whatever part of it could be read.
+        raise Refusal(f"the list in force, `{price_list.get('price_list_id')}`, is not a valid "
+                      f"price list ({type(exc).__name__}: {exc})") from None
     status = (price_list.get("calibration") or {}).get("status")
     return {
         "run_id": row["run_id"],
