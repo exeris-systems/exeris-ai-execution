@@ -1,0 +1,77 @@
+{
+  "accounting": {
+    "mode": "subscription",
+    "usage": {
+      "cache_read_tokens": 1033678,
+      "cache_write_tokens": 52942,
+      "input_tokens": 40,
+      "output_tokens": 9776
+    }
+  },
+  "agent": {
+    "harness": {
+      "client": "claude-code",
+      "version": "2.1.299"
+    },
+    "model_id": "claude-sonnet-5-5",
+    "model_snapshot": "unresolved:claude-sonnet-5-5",
+    "provider": "anthropic",
+    "system_prompt_sha256": "fdc51a8eb761f6276b6a6071767c3c7db7451af7a2b6a56cb5963e6b481984cc"
+  },
+  "execution": {
+    "capture_level": "full",
+    "event_stream": {
+      "event_count": 126,
+      "ref": "exeris-systems/exeris-ai-execution-streams/streams/2026-10-14/exeris-ai-bridge/01M4X1ARGTCYPCJNQHTDY1259E.jsonl@fe51de6bccc406e7dbadc23baf1d4b76f40ca456",
+      "sha256": "9420a909df94da5df0b26508612717e83eef9d8c546b923f1ffcd5972eeb7d89"
+    },
+    "human_prompts": 0,
+    "permission_denials": 5,
+    "principal": {
+      "kind": "app",
+      "login": "exeris-agent[bot]"
+    },
+    "result_commits": [
+      "85e7fe4b2e45416f16ae2aa16e70b0055aced417",
+      "6a536ccf8b8d8045abe43ee350ca4dd9ca3d1402"
+    ],
+    "tool_calls": 21,
+    "turns": 20,
+    "wall_time_ms": 92000
+  },
+  "instrument": {
+    "capture_version": "0.2.0",
+    "fence": "2026-10-14-harness-claude-oracle3-v2-mcp-cc-2-1-299"
+  },
+  "oracle": {
+    "calibration": {
+      "result": "11/11",
+      "run_at": "2026-09-24T06:05:51Z",
+      "status": "pass",
+      "suite": "docs-mutation-v2"
+    },
+    "id": "docs-guardrails",
+    "version": "2.1.0"
+  },
+  "outcome": "TRUE_DONE",
+  "pairing": {
+    "arm": "sonnet-5-5",
+    "arms_planned": 3,
+    "baseline": "none",
+    "group_id": "G-002"
+  },
+  "repository_state": {
+    "bundle_version": "2.1.0",
+    "commit": "6d01b5609cd1a0fb7e72edc9751ac8e6f18c85d4",
+    "dirty": false,
+    "repository": "exeris-systems/exeris-ai-bridge",
+    "visibility": "public"
+  },
+  "run_id": "01M4X1ARGTCYPCJNQHTDY1259E",
+  "started_at": "2026-10-14T11:04:02Z",
+  "workload": {
+    "domain": "docs-sweep",
+    "fingerprint": "reg:T-001",
+    "scope": "docs-only"
+  }
+}
