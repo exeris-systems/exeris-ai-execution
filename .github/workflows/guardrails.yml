@@ -38,7 +38,7 @@ concurrency:
 #
 # Granting them here does not widen docs-lint, commit-lint or pr-body-check: each called workflow's
 # jobs receive what its own permissions block declares, capped by this one. `id-token: write` is the
-# OIDC exchange claude-code-action performs and no job here needs it but `docs-review`, so it sits in
+# OIDC exchange claude-code-action performs and no job here needs it but `review`, so it sits in
 # that job's own block below rather than here, where every job would otherwise receive it. `issues:
 # read` is so the routine can see the debt issues of issue-conventions.md rule 6, and stays here
 # alongside `contents` and `pull-requests` because more than one job reads them.
@@ -88,10 +88,10 @@ jobs:
   # never the required one, because a review that crashed has to reach the step that notices.
   #
   # THE CHECK NAME THEN HAS THREE SEGMENTS, because the publish half is its own reusable workflow:
-  # `docs-review / publish / verdict`. CONFIRM IT AGAINST A REAL RUN before adding it to a branch
+  # `review / verdict`. CONFIRM IT AGAINST A REAL RUN before adding it to a branch
   # protection rule — a required check whose name does not exist never reports, and a pull request
   # waiting on one can never merge. Without `publish: true` the only check this job contributes is
-  # `docs-review / produce`.
+  # `review / produce`.
   #
   # Secrets are named rather than inherited, matching exeris-kernel and exeris-sdk, which both
   # refused `secrets: inherit` under SonarCloud S7631. The two EXERIS_BOT_* lines are optional: drop
@@ -110,7 +110,7 @@ jobs:
   # required check goes red saying so until a review is asked for again. That is deliberate: a
   # verdict is about the tree it read, and a green check resting on a review of code that is gone is
   # worse than a red one.
-  docs-review:
+  review:
     needs: [docs, commits, pr-body]
     if: ${{ always() }}
     # A job-level `permissions:` key replaces the workflow-level grant for this job rather than
@@ -121,7 +121,7 @@ jobs:
       pull-requests: read
       issues: read
       id-token: write
-    uses: exeris-systems/.github/.github/workflows/docs-review.yml@main
+    uses: exeris-systems/.github/.github/workflows/review.yml@main
     with:
       publish: true
       l1-results: >-
