@@ -66,12 +66,11 @@ STREAMS_REPO = "exeris-systems/exeris-ai-execution-streams"
 # runner. All three are read from the run's own record of which workflow it resolved, so these are
 # the names to match against rather than locations to read from.
 #
-# The review is `review.yml`. `docs-review.yml` is the wrapper that keeps the old entry point alive
-# (one job, `publish`, calling `review.yml`), and before the move it held the review itself. A run
-# therefore belongs to one of three shapes, told apart by what the run resolved and what the caller
-# calls rather than by a date: the caller's job calls `review.yml`; the caller's job calls the
-# wrapper, whose job calls `review.yml`, one more segment in every check name; or the run predates
-# the move and the prompt stands in `docs-review.yml` itself.
+# The review is `review.yml`. `docs-review.yml` is either a one-job wrapper (`publish`, calling
+# `review.yml`) or, at older commits, a file that holds the prompt itself. A run belongs to one of
+# three shapes, told apart by what the run resolved and what the caller calls: the caller's job
+# calls `review.yml`; the caller's job calls the wrapper, whose job calls `review.yml`, one more
+# segment in every check name; or the resolved `docs-review.yml` holds the prompt itself.
 REVIEW_WORKFLOW = "review.yml"
 WRAPPER_WORKFLOW = "docs-review.yml"
 REVIEW_STEP = "Docs and hygiene review"
@@ -650,10 +649,10 @@ def review_text_step(fetcher: Fetcher, run: dict, out: Outcome) -> tuple[str, st
 
     Where the run resolved `review.yml` that is the text, whether the caller called it directly or
     through the wrapper (the wrapper is then read for its job id, which is a segment of every leg's
-    name). Where it resolved only `docs-review.yml`, the text is either the review itself, for a
-    run before the move, or the wrapper, whose own call of `review.yml` is followed when it names
-    a commit and costs the row when it names a branch: a branch is where the workflow is now, not
-    where it was when the runner read it.
+    name). Where it resolved only `docs-review.yml`, the text is either the review itself, when
+    that `docs-review.yml` holds the prompt, or the wrapper, whose own call of `review.yml` is followed when it names
+    a commit and costs the row when it names a branch: a branch names no fixed text, and only a
+    commit is the text the runner read.
     """
     reference = ci_row.referenced_workflow(run, REVIEW_WORKFLOW)
     wrapper = ci_row.referenced_workflow(run, WRAPPER_WORKFLOW)
@@ -678,7 +677,7 @@ def review_text_step(fetcher: Fetcher, run: dict, out: Outcome) -> tuple[str, st
                      "path": wrapper["path"].rsplit("/", 1)[0] + "/" + REVIEW_WORKFLOW,
                      "sha": pinned}
     if reference is None and isinstance(wrapper_text, str):
-        # Before the move: the wrapper's name held the review itself.
+        # The resolved docs-review.yml holds the prompt itself.
         reference = wrapper
     if not reference or not reference.get("sha"):
         return out.no_row("review-workflow-unresolved",

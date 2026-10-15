@@ -105,8 +105,8 @@ DOCS_REVIEW_L1 = "guardrails-org/workflows/docs-review-l1-results.yml"
 # model can export a hash over what it actually handed over; a reconstruction that could not read
 # either spelling would yield no row for exactly the runs whose hash is checkable against its own.
 DOCS_REVIEW_RENDERED = "guardrails-org/workflows/docs-review-rendered.yml"
-# The review as it stands after the move: `review.yml` holds the produce job, `docs-review.yml` is a
-# one-job wrapper around it, and a caller reaches it by either.
+# `review.yml` holds the produce job, `docs-review.yml` is a one-job wrapper around it, and a caller
+# reaches the review through either.
 REVIEW = "guardrails-org/workflows/review.yml"
 WRAPPER = "guardrails-org/workflows/docs-review-wrapper.yml"
 CALLER_REVIEW = "repo/workflows/guardrails-review.yml"
@@ -1545,7 +1545,7 @@ def _(root):
     w.build()
     assert_golden(w)
 
-    # `@main` is where the review is now and not where it was when the runner read it.
+    # A branch reference is refused: it names no fixed text, so it is not the commit the runner read.
     moved = os.path.join(root, "moved")
     os.makedirs(moved)
     w = World(moved)

@@ -1,6 +1,6 @@
-# Fixture excerpt of the org's `docs-review.yml` once it became a wrapper: one job, `publish`,
-# calling `review.yml`. Its job id is the middle segment of every check the review reports for a
-# caller that has not moved (`docs-review / publish / produce (<part>)`).
+# Fixture excerpt of the org's `docs-review.yml` as a one-job wrapper: one job, `publish`, calling
+# `review.yml`. Its job id is the middle segment of every check the review reports for a caller that
+# calls the wrapper (`docs-review / publish / produce (<part>)`).
 on:
   workflow_call:
     inputs:

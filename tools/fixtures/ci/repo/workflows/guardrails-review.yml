@@ -1,5 +1,5 @@
-# Fixture excerpt of a caller that has moved to `review.yml`: the job is called `review` and calls
-# it directly, so the review's legs report as `review / produce (<part>)`. The inputs are the ones
+# Fixture excerpt of a caller whose job calls `review.yml` directly: the job is called `review`,
+# so the review's legs report as `review / produce (<part>)`. The inputs are the ones
 # `guardrails.yml` hands the wrapper, so the prompt both render is the same text.
 jobs:
   docs:
