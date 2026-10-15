@@ -65,7 +65,15 @@ STREAMS_REPO = "exeris-systems/exeris-ai-execution-streams"
 # What the reviewing workflow is called, what its step is called, and the routine it hands the
 # runner. All three are read from the run's own record of which workflow it resolved, so these are
 # the names to match against rather than locations to read from.
-REVIEW_WORKFLOW = "docs-review.yml"
+#
+# The review is `review.yml`. `docs-review.yml` is the wrapper that keeps the old entry point alive
+# (one job, `publish`, calling `review.yml`), and before the move it held the review itself. A run
+# therefore belongs to one of three shapes, told apart by what the run resolved and what the caller
+# calls rather than by a date: the caller's job calls `review.yml`; the caller's job calls the
+# wrapper, whose job calls `review.yml`, one more segment in every check name; or the run predates
+# the move and the prompt stands in `docs-review.yml` itself.
+REVIEW_WORKFLOW = "review.yml"
+WRAPPER_WORKFLOW = "docs-review.yml"
 REVIEW_STEP = "Docs and hygiene review"
 ROUTINE_PATH = "docs-guardrails-review.md"
 
@@ -400,6 +408,10 @@ class Outcome:
     fence: str | None = None
     permission_mode: str | None = None
     started_at_coarse: bool = False
+    # The check-name prefix of the review's legs on this run, `<caller job>` or
+    # `<caller job> / <wrapper job>`, and the wrapper's job id where the run went through it.
+    leg_prefix: str | None = None
+    wrapper_job: str | None = None
     denial_mismatch: dict | None = None
     surface_writes_nothing: bool | None = None
     head_rebased_away: bool | None = None
@@ -623,7 +635,7 @@ def schedule_step(entry: dict, fetcher: Fetcher, run: dict,
     jobs = fetcher.get(
         f"repos/{out.repo}/actions/runs/{entry['workflow_run_id']}/jobs?per_page=100")
     jobs = None if absent(jobs) else jobs
-    started, coarse = ci_row.review_started_at(jobs, run, REVIEW_STEP, out.part)
+    started, coarse = ci_row.review_started_at(jobs, run, REVIEW_STEP, out.part, out.leg_prefix)
     out.started_at_coarse = coarse
     if not started:
         return out.no_row("started-at-unresolved", "neither the review step nor the run is dated")
@@ -635,11 +647,49 @@ def review_text_step(fetcher: Fetcher, run: dict, out: Outcome) -> tuple[str, st
 
     The run's own record of which workflow it resolved is where both come from: it names the exact
     commit, which is the only surviving statement of which text the runner was handed.
+
+    Where the run resolved `review.yml` that is the text, whether the caller called it directly or
+    through the wrapper (the wrapper is then read for its job id, which is a segment of every leg's
+    name). Where it resolved only `docs-review.yml`, the text is either the review itself, for a
+    run before the move, or the wrapper, whose own call of `review.yml` is followed when it names
+    a commit and costs the row when it names a branch: a branch is where the workflow is now, not
+    where it was when the runner read it.
     """
     reference = ci_row.referenced_workflow(run, REVIEW_WORKFLOW)
+    wrapper = ci_row.referenced_workflow(run, WRAPPER_WORKFLOW)
+    wrapper_text = None
+    if wrapper and wrapper.get("sha"):
+        wrapper_text = text_at(fetcher, wrapper["repository"], wrapper["path"], wrapper["sha"])
+        if wrapper_text is UNREADABLE or wrapper_text is None:
+            if reference is None:
+                return out.no_row("review-workflow-unreadable" if wrapper_text is UNREADABLE
+                                  else "review-workflow-404",
+                                  f"`{wrapper['path']}` at `{wrapper['sha']}` is not readable")
+            wrapper_text = None
+    wrapper_call = (ci_row.review_call(wrapper_text, REVIEW_WORKFLOW)
+                    if isinstance(wrapper_text, str) else None)
+    if reference is None and wrapper_call is not None:
+        pinned = str(wrapper_call.get("ref") or "")
+        if not HEAD_SHA.fullmatch(pinned):
+            return out.no_row("review-workflow-unresolved",
+                              f"the run resolved `{WRAPPER_WORKFLOW}`, which calls "
+                              f"`{REVIEW_WORKFLOW}@{pinned}`, and no commit of `{REVIEW_WORKFLOW}`")
+        reference = {"repository": wrapper["repository"],
+                     "path": wrapper["path"].rsplit("/", 1)[0] + "/" + REVIEW_WORKFLOW,
+                     "sha": pinned}
+    if reference is None and isinstance(wrapper_text, str):
+        # Before the move: the wrapper's name held the review itself.
+        reference = wrapper
     if not reference or not reference.get("sha"):
         return out.no_row("review-workflow-unresolved",
-                          f"the run references no `{REVIEW_WORKFLOW}` at a commit")
+                          f"the run references no `{REVIEW_WORKFLOW}` or `{WRAPPER_WORKFLOW}` at "
+                          f"a commit")
+    if wrapper is not None and wrapper_call is not None:
+        out.wrapper_job = wrapper_call["job"]
+    elif wrapper is not None and reference is not wrapper and wrapper_text is None:
+        return out.no_row("review-workflow-unresolved",
+                          f"the run went through `{WRAPPER_WORKFLOW}` and its text is not readable, "
+                          f"so the segment its job adds to the check names is not established")
     template = text_at(fetcher, reference["repository"], reference["path"], reference["sha"])
     if template is UNREADABLE:
         return out.no_row("review-workflow-unreadable",
@@ -656,6 +706,33 @@ def review_text_step(fetcher: Fetcher, run: dict, out: Outcome) -> tuple[str, st
         return out.no_row("routine-404",
                           f"`{ROUTINE_PATH}` is not there at `{reference['sha']}`")
     return template, routine
+
+
+def caller_step(fetcher: Fetcher, run: dict, head_sha: str, out: Outcome) -> dict | Outcome:
+    """The caller's call of the review, and with it the name its legs carry in this run.
+
+    The caller is the workflow that handed the review its inputs, and the run names it where the
+    host reports one. Where it does not, the entry workflow every repository copies is where the
+    call is, and the file is accepted as the caller only once it is seen calling the review (either
+    workflow, under any job id) — a file that calls it nowhere supplied none of the prompt's
+    inputs, whatever it is named.
+
+    The legs are named `<caller job> / produce (<part>)`, with the wrapper's job between the two
+    where the run went through the wrapper.
+    """
+    caller_path = str(run.get("path") or CALLER_PATH)
+    caller = text_at(fetcher, out.repo, caller_path, head_sha)
+    if caller is UNREADABLE or caller is None:
+        return out.no_row("caller-unreadable",
+                          f"`{caller_path}` is not readable at `{head_sha}`")
+    call = ci_row.review_call(caller)
+    if call is None or not call.get("job"):
+        return out.no_row("caller-unreadable",
+                          f"`{caller_path}` calls neither `{REVIEW_WORKFLOW}` nor "
+                          f"`{WRAPPER_WORKFLOW}`, so it is not the caller that handed the review "
+                          f"its inputs")
+    out.leg_prefix = call["job"] + (f" / {out.wrapper_job}" if out.wrapper_job else "")
+    return dict(call, text=caller)
 
 
 def prompt_substitutions(out: Outcome, mapping: dict, conclusions: dict, inputs: dict,
@@ -685,36 +762,21 @@ def prompt_substitutions(out: Outcome, mapping: dict, conclusions: dict, inputs:
     }
 
 
-def prompt_step(fetcher: Fetcher, run: dict, jobs: object, head_sha: str, template: str,
-                out: Outcome) -> str | Outcome:
+def prompt_step(call: dict, jobs: object, template: str, out: Outcome) -> str | Outcome:
     """The prompt the workflow handed the runner, rendered from the caller's own inputs.
-
-    The caller is the workflow that handed the review its inputs, and the run names it where the
-    host reports one. Where it does not, the entry workflow every repository copies is where the
-    call is, and the file is accepted as the caller only once it is seen calling the review — a
-    file that calls it nowhere supplied none of the prompt's inputs, whatever it is named.
 
     A job the run reports no conclusion for costs the row rather than rendering a hole in the
     prompt: the text the runner read is then unrecoverable, and a hash over a restatement that is
     not the prompt is worse than no row, because it is indistinguishable from one that is.
     """
-    caller_path = str(run.get("path") or CALLER_PATH)
-    caller = text_at(fetcher, out.repo, caller_path, head_sha)
-    if caller is UNREADABLE or caller is None:
-        return out.no_row("caller-unreadable",
-                          f"`{caller_path}` is not readable at `{head_sha}`")
-    inputs = ci_row.caller_inputs(caller, REVIEW_WORKFLOW)
-    if inputs is None:
-        return out.no_row("caller-unreadable",
-                          f"`{caller_path}` calls no `{REVIEW_WORKFLOW}`, so it is not the caller "
-                          f"that handed the review its inputs")
+    caller, inputs = call["text"], call["inputs"]
     mapping = ci_row.l1_mapping(inputs.get("l1-results"))
     conclusions = ci_row.job_conclusions(jobs, list(mapping.values()))
     unresolved = sorted(name for name, value in conclusions.items() if value is None)
     if unresolved:
         return out.no_row("l1-unresolved",
                           f"the run reports no conclusion for {', '.join(unresolved)}")
-    l1_input = ci_row.l1_results_input(caller, conclusions, REVIEW_WORKFLOW)
+    l1_input = ci_row.l1_results_input(caller, conclusions)
     if l1_input is None:
         return out.no_row("l1-unresolved",
                           "the caller's `l1-results` names a job the run reports no conclusion "
@@ -902,15 +964,18 @@ def derive_one(entry: dict, fetcher: Fetcher, args, capture_version: str,
     pull_json = pull_request_step(fetcher, run_json, head_sha, out)
     if isinstance(pull_json, Outcome):
         return pull_json
-    schedule = schedule_step(entry, fetcher, run_json, out)
-    if isinstance(schedule, Outcome):
-        return schedule
-    jobs, started = schedule
     texts = review_text_step(fetcher, run_json, out)
     if isinstance(texts, Outcome):
         return texts
     template, routine = texts
-    prompt = prompt_step(fetcher, run_json, jobs, head_sha, template, out)
+    call = caller_step(fetcher, run_json, head_sha, out)
+    if isinstance(call, Outcome):
+        return call
+    schedule = schedule_step(entry, fetcher, run_json, out)
+    if isinstance(schedule, Outcome):
+        return schedule
+    jobs, started = schedule
+    prompt = prompt_step(call, jobs, template, out)
     if isinstance(prompt, Outcome):
         return prompt
     instructions = instructions_step(fetcher, head_sha, prompt, routine, out)
