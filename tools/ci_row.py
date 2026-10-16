@@ -1058,38 +1058,71 @@ def l1_mapping(l1_results: str | None) -> dict:
     return dict(NEEDS_RESULT.findall(l1_results))
 
 
-def caller_inputs(caller_yaml: str, workflow: str = "docs-review.yml") -> dict | None:
-    """The `with:` mapping the caller hands the review workflow, values as their raw text.
+# A call of the review workflow, under either of its names. `review.yml` is the workflow;
+# `docs-review.yml` is the wrapper that keeps the old entry point alive and is a one-job call of it.
+# The slash before the name is what keeps `review.yml` from matching inside `docs-review.yml`.
+REVIEW_USES = re.compile(
+    r"^(\s*)uses:\s*['\"]?(\S*/(?:docs-review|review)\.yml)(?:@([^\s'\"#]+))?['\"]?\s*(?:#.*)?$")
+JOB_KEY = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_-]*):\s*(?:#.*)?$")
 
-    `None` where this file calls that workflow nowhere, and an empty mapping where it calls it and
-    passes nothing. The two are different answers and the difference is load-bearing: the first says
-    the file read is not the caller, which costs the row, and the second says the caller took every
-    default, which renders a prompt like any other.
+
+def review_call(caller_yaml: str, workflow: str | None = None) -> dict | None:
+    """The call of the review workflow in this file, as `{job, workflow, ref, inputs}`.
+
+    `None` where the file calls it nowhere, and `inputs == {}` where it calls it and passes nothing.
+    The two are different answers and the difference is load-bearing: the first says the file read
+    is not the caller, which costs the row, and the second says the caller took every default,
+    which renders a prompt like any other.
+
+    The workflow is found by what the job `uses`, never by the job's id: a caller names its job
+    `review`, or `docs-review`, or anything else, and the id is a fact about the caller that the
+    run's check names are built from (`<job> / produce (<part>)`). `workflow` narrows the search to
+    one of the two basenames; without it either is found.
 
     Read by indentation rather than by a YAML parser, because this module imports nothing outside
     the standard library and the shape being read is two levels deep and fixed by the workflow it
     calls. A block scalar's value is its raw dedented body: the two inputs read from here are a
     plain filename and a command list whose emptiness is the only thing the prompt depends on.
+    A reusable workflow is referenced locally as `./…/review.yml`, from another repository as
+    `owner/repo/…/review.yml@<ref>`, and — where the reference is pinned to a commit — with a
+    trailing comment naming the branch that commit was on. All three are the same call, so the ref
+    suffix and the comment are optional here: a pattern that admitted one spelling would read a
+    caller written in another as a file that calls nothing, and a file that calls nothing costs the
+    row.
     """
     lines = caller_yaml.splitlines()
-    # A reusable workflow is referenced locally as `./…/docs-review.yml`, from another repository
-    # as `owner/repo/…/docs-review.yml@<ref>`, and — where the reference is pinned to a commit —
-    # with a trailing comment naming the branch that commit was on. All three are the same call,
-    # so both the ref suffix and the comment are optional here: a pattern that admitted one
-    # spelling would read a caller written in another as a file that calls nothing, and a file
-    # that calls nothing costs the row.
-    uses = re.compile(rf"^(\s*)uses:\s*\S*{re.escape(workflow)}(@\S+)?\s*(#.*)?$")
-    calls = False
     for index, line in enumerate(lines):
-        found = uses.match(line)
-        if not found:
+        found = REVIEW_USES.match(line)
+        if not found or (workflow and not found.group(2).endswith("/" + workflow)):
             continue
-        calls = True
-        start = _with_block(lines, index, len(found.group(1)))
-        if start is None:
+        column = len(found.group(1))
+        start = _with_block(lines, index, column)
+        return {"job": _job_of(lines, index, column),
+                "workflow": found.group(2).rsplit("/", 1)[1],
+                "ref": found.group(3),
+                "inputs": {} if start is None else _mapping_at(lines[start:])}
+    return None
+
+
+def _job_of(lines: list[str], index: int, column: int) -> str | None:
+    """The id of the job whose `uses:` stands at `index`: the nearest key standing further left."""
+    for back in range(index - 1, -1, -1):
+        if _skipped_line(lines[back]):
             continue
-        return _mapping_at(lines[start:])
-    return {} if calls else None
+        if len(lines[back]) - len(lines[back].lstrip()) >= column:
+            continue
+        found = JOB_KEY.match(lines[back])
+        return found.group(1) if found else None
+    return None
+
+
+def caller_inputs(caller_yaml: str, workflow: str | None = None) -> dict | None:
+    """The `with:` mapping the caller hands the review workflow, values as their raw text.
+
+    `None` where this file calls that workflow nowhere (see `review_call`).
+    """
+    call = review_call(caller_yaml, workflow)
+    return None if call is None else call["inputs"]
 
 
 def _skipped_line(line: str) -> bool:
@@ -1171,7 +1204,7 @@ def _entry_value(body: list[str], offset: int, key: str, value: str) -> str:
 
 
 def l1_results_input(caller_yaml: str, conclusions: dict,
-                     workflow: str = "docs-review.yml") -> str | None:
+                     workflow: str | None = None) -> str | None:
     """The value `inputs.l1-results` carried into the review, or None where it is not established.
 
     Two readings compose here, in the host's own order. YAML settles the scalar's text first — the
@@ -1375,7 +1408,8 @@ def referenced_workflow(run_json: dict | None, basename: str) -> dict | None:
 
 
 def review_started_at(jobs_json: dict | None, run_json: dict | None,
-                      step_name: str, part: str | None = None) -> tuple[str | None, bool]:
+                      step_name: str, part: str | None = None,
+                      leg_prefix: str | None = None) -> tuple[str | None, bool]:
     """`started_at`, and whether it is the coarse one.
 
     The reviewing step's own start is what the row wants: it is when the run began, and a fence is
@@ -1386,11 +1420,21 @@ def review_started_at(jobs_json: dict | None, run_json: dict | None,
 
     With a `part`, only the matrix leg that judged it counts. Every leg carries a step of the same
     name, and the host names a leg's job `<job> (<part>)`; another leg's step dates another run.
+
+    With a `leg_prefix`, the leg is named in full: `<prefix> / produce`, followed by ` (<part>)`
+    where there is a part. The prefix is the caller's job id, and the wrapper's job id after it
+    where the caller reaches the review through the wrapper — the check names are one segment per
+    workflow the run passes through. A job of another name, another caller's review among them, is
+    another run's start.
     """
     for job in (jobs_json or {}).get("jobs") or []:
         if not isinstance(job, dict):
             continue
-        if part is not None and not str(job.get("name", "")).endswith(f"({part})"):
+        if leg_prefix is not None:
+            wanted = f"{leg_prefix} / produce" + ("" if part is None else f" ({part})")
+            if str(job.get("name", "")) != wanted:
+                continue
+        elif part is not None and not str(job.get("name", "")).endswith(f"({part})"):
             continue
         for step in job.get("steps") or []:
             if isinstance(step, dict) and step.get("name") == step_name and step.get("started_at"):

@@ -77,6 +77,9 @@ RUN = 41000000001
 ARTIFACT = 20000000001
 HEAD = "a1b2c3d4" * 5
 REF_SHA = "e5f60718" * 5
+# The commit the wrapper was resolved at, which is not the commit `review.yml` was.
+WRAPPER_SHA = "0d1c2b3a" * 5
+RUN_KEY = "repos/exeris-systems/exeris-ai-execution/actions/runs/41000000001"
 RUN_ID = f"ci-{RUN}-{ARTIFACT}"
 ROW_PATH = os.path.join("inbox", "2026-09-17", "runs", f"{RUN_ID}.json")
 # The fence date every case passes. A fence id carries the day the fence was written, and a
@@ -102,6 +105,11 @@ DOCS_REVIEW_L1 = "guardrails-org/workflows/docs-review-l1-results.yml"
 # model can export a hash over what it actually handed over; a reconstruction that could not read
 # either spelling would yield no row for exactly the runs whose hash is checkable against its own.
 DOCS_REVIEW_RENDERED = "guardrails-org/workflows/docs-review-rendered.yml"
+# `review.yml` holds the produce job, `docs-review.yml` is a one-job wrapper around it, and a caller
+# reaches the review through either.
+REVIEW = "guardrails-org/workflows/review.yml"
+WRAPPER = "guardrails-org/workflows/docs-review-wrapper.yml"
+CALLER_REVIEW = "repo/workflows/guardrails-review.yml"
 ROUTINE = "guardrails-org/docs-guardrails-review.md"
 AGENTS_MD = "repo/AGENTS.md"
 MANIFEST = "repo/.agents/manifest.yaml"
@@ -114,6 +122,7 @@ CALLER = "repo/workflows/guardrails.yml"
 # for another would agree about everything except the lookup.
 REVIEW_REST_PATH = ".github/workflows/docs-review.yml"
 CALLER_REST_PATH = ".github/workflows/guardrails.yml"
+REVIEW_YML_REST_PATH = ".github/workflows/review.yml"
 MANIFEST_REST_PATH = ".agents/manifest.yaml"
 
 # The expression the prompt template carries for the caller's own extension path. Written out
@@ -1459,6 +1468,141 @@ def _(root):
     w.build()
     _code, out = w.run()
     assert_no_row(w, out, "part-unresolved")
+
+
+# -- the review under its three entry shapes ---------------------------------------------------
+
+
+def resolved(w: World, *entries: tuple[str, str]) -> None:
+    """The run's `referenced_workflows`: `(basename, sha)` for each workflow it resolved."""
+    run = json.loads(json.dumps(w.rest.bodies[RUN_KEY]))
+    run["referenced_workflows"] = [
+        {"path": f"{ORG}/.github/workflows/{name}@main", "ref": "refs/heads/main", "sha": sha}
+        for name, sha in entries]
+    w.rest.bodies[RUN_KEY] = run
+
+
+def legs_named(w: World, *names: str, decoy: str | None = None) -> None:
+    """The run's jobs, its produce leg renamed to what the host calls it for this caller.
+
+    A decoy is a second produce leg under another caller's name, dated differently: a derivation
+    that took any leg ending `/ produce` would date the row by it.
+    """
+    body = json.loads(json.dumps(w.rest.bodies[jobs_key(w)]))
+    legs = [j for j in body["jobs"] if j["name"] == "docs-review / produce"]
+    assert len(legs) == 1, body
+    legs[0]["name"] = names[0]
+    if decoy:
+        other = json.loads(json.dumps(legs[0]))
+        other["name"] = decoy
+        for step in other["steps"]:
+            step["started_at"] = "2026-09-17T09:59:00Z"
+        body["jobs"].insert(0, other)
+    w.rest.bodies[jobs_key(w)] = body
+
+
+def assert_golden(w: World) -> None:
+    """The row is the one the fixture's review text and inputs hash to, whichever entry it took."""
+    code, out = w.run()
+    assert code == 0, out
+    row = w.row()
+    assert row["agent"]["system_prompt_sha256"] == SYSTEM_PROMPT_SHA256, row["agent"]
+    assert row["started_at"] == "2026-09-17T10:00:00Z", row["started_at"]
+
+
+@case("35 — a caller job calling review.yml yields the row, and its legs are `<job> / produce`")
+def _(root):
+    w = World(root)
+    w.rest.file(ORG, REVIEW_YML_REST_PATH, REF_SHA, fixture(REVIEW))
+    w.rest.file(REPO, CALLER_REST_PATH, HEAD, fixture(CALLER_REVIEW))
+    resolved(w, ("review.yml", REF_SHA))
+    legs_named(w, "review / produce", decoy="docs-review / produce")
+    w.build()
+    assert_golden(w)
+
+
+@case("36 — a caller job calling the docs-review wrapper yields the row, legs nested under publish")
+def _(root):
+    w = World(root)
+    w.rest.file(ORG, REVIEW_YML_REST_PATH, REF_SHA, fixture(REVIEW))
+    w.rest.file(ORG, REVIEW_REST_PATH, WRAPPER_SHA, fixture(WRAPPER))
+    resolved(w, ("docs-review.yml", WRAPPER_SHA), ("review.yml", REF_SHA))
+    legs_named(w, "docs-review / publish / produce", decoy="docs-review / produce")
+    w.build()
+    assert_golden(w)
+
+
+@case("37 — the wrapper's own review.yml is followed when it names a commit, refused when a branch")
+def _(root):
+    pinned = os.path.join(root, "pinned")
+    os.makedirs(pinned)
+    w = World(pinned)
+    w.rest.file(ORG, REVIEW_YML_REST_PATH, REF_SHA, fixture(REVIEW))
+    w.rest.file(ORG, REVIEW_REST_PATH, WRAPPER_SHA,
+                fixture(WRAPPER).replace("review.yml@main", f"review.yml@{REF_SHA}"))
+    resolved(w, ("docs-review.yml", WRAPPER_SHA))
+    legs_named(w, "docs-review / publish / produce")
+    w.build()
+    assert_golden(w)
+
+    # A branch reference is refused: it names no fixed text, so it is not the commit the runner read.
+    moved = os.path.join(root, "moved")
+    os.makedirs(moved)
+    w = World(moved)
+    w.rest.file(ORG, REVIEW_YML_REST_PATH, REF_SHA, fixture(REVIEW))
+    w.rest.file(ORG, REVIEW_REST_PATH, WRAPPER_SHA, fixture(WRAPPER))
+    resolved(w, ("docs-review.yml", WRAPPER_SHA))
+    legs_named(w, "docs-review / publish / produce")
+    w.build()
+    _code, out = w.run()
+    assert_no_row(w, out, "review-workflow-unresolved")
+
+
+@case("38 — a leg that is not the caller's is not the review's start, and the run's start stands")
+def _(root):
+    w = World(root)
+    w.rest.file(ORG, REVIEW_YML_REST_PATH, REF_SHA, fixture(REVIEW))
+    w.rest.file(REPO, CALLER_REST_PATH, HEAD, fixture(CALLER_REVIEW))
+    resolved(w, ("review.yml", REF_SHA))
+    # The caller's job is `review`; the only leg in the run is the wrapper-shaped one.
+    legs_named(w, "docs-review / publish / produce")
+    w.build()
+    code, out = w.run()
+    assert code == 0, out
+    assert w.row()["started_at"] == "2026-09-17T09:58:12Z", w.row()["started_at"]
+
+
+@case("39 — a caller of review.yml under any job id is found by what it uses")
+def _(root):
+    mod = ci_row()
+    renamed = fixture(CALLER_REVIEW).replace("  review:\n", "  ai-review:\n")
+    call = mod.review_call(renamed)
+    assert (call["job"], call["workflow"], call["ref"]) == ("ai-review", "review.yml", "main"), call
+    assert call["inputs"]["repo-routine"] == "docs/repo-review-rules.md", call
+    wrapper = mod.review_call(fixture(CALLER))
+    assert (wrapper["job"], wrapper["workflow"]) == ("docs-review", "docs-review.yml"), wrapper
+    # `review.yml` is not found inside `docs-review.yml`, and the narrowing says which is wanted.
+    assert mod.review_call(fixture(CALLER), "review.yml") is None
+    assert mod.review_call(fixture(CALLER_REVIEW), "docs-review.yml") is None
+    # Local and pinned spellings are the same call; a file that calls neither calls nothing.
+    local = "jobs:\n  r:\n    uses: ./.github/workflows/review.yml\n"
+    assert mod.review_call(local) == {"job": "r", "workflow": "review.yml", "ref": None,
+                                      "inputs": {}}, mod.review_call(local)
+    pinned = f"jobs:\n  r:\n    uses: o/.github/.github/workflows/review.yml@{REF_SHA} # main\n"
+    assert mod.review_call(pinned)["ref"] == REF_SHA, mod.review_call(pinned)
+    assert mod.review_call("jobs:\n  d:\n    uses: o/r/.github/workflows/docs-lint.yml@main\n") \
+        is None
+    assert mod.caller_inputs(fixture(CALLER_REVIEW)) == mod.caller_inputs(fixture(CALLER))
+    # The leg is named in full where a prefix is given.
+    jobs = part_jobs({"pr": "2026-09-17T10:00:00Z"})
+    run = {"run_started_at": "2026-09-17T09:58:12Z"}
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review", "pr", "docs-review") \
+        == ("2026-09-17T10:00:00Z", False)
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review", "pr", "review") \
+        == ("2026-09-17T09:58:12Z", True)
+    assert mod.review_started_at(jobs, run, "Docs and hygiene review", "pr", "docs-review / publish") \
+        == ("2026-09-17T09:58:12Z", True)
+
 
 
 def main() -> int:

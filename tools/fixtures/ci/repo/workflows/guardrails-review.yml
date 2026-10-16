@@ -1,0 +1,22 @@
+# Fixture excerpt of a caller whose job calls `review.yml` directly: the job is called `review`,
+# so the review's legs report as `review / produce (<part>)`. The inputs are the ones
+# `guardrails.yml` hands the wrapper, so the prompt both render is the same text.
+jobs:
+  docs:
+    uses: exeris-systems/.github/.github/workflows/docs-lint.yml@main
+  commits:
+    uses: exeris-systems/.github/.github/workflows/commit-lint.yml@main
+  pr-body:
+    uses: exeris-systems/.github/.github/workflows/pr-body-check.yml@main
+  review:
+    needs: [docs, commits, pr-body]
+    if: ${{ always() }}
+    uses: exeris-systems/.github/.github/workflows/review.yml@main
+    with:
+      publish: true
+      l1-results: >-
+        {"docs-lint": "${{ needs.docs.result }}",
+         "commit-lint": "${{ needs.commits.result }}",
+         "pr-body-check": "${{ needs.pr-body.result }}"}
+      repo-routine: docs/repo-review-rules.md
+      repo-checks: python3 tools/inbox_validate_suite.py
