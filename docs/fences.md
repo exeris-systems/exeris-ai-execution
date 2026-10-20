@@ -4,7 +4,7 @@ type: reference
 visibility: public
 owning-repo: exeris-ai-execution
 status: active
-last-verified: 2026-09-22
+last-verified: 2026-10-20
 ---
 
 # Fences in force
@@ -28,6 +28,20 @@ an id nobody wrote down is a fence nobody can say they are on the far side of.
 | `2026-09-19-ci-backfill-cc-2-1-273` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.273`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
 | `2026-09-19-ci-backfill-cc-2-1-274` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.274`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
 | `2026-09-19-ci-backfill-cc-2-1-278` | 2026-09-19 | `ci-backfill` | Rows derived by `tools/derive_ci_rows.py` from the rescued execution streams of runs under client `2.1.278`. On every one of them `agent.system_prompt_sha256` is **reconstructed**, not captured. | See *The backfill fences* below. |
+| `2026-09-29-ci-live-cc-2-1-285` | 2026-09-29 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.285` that started on 2026-09-29 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-09-30-ci-live-cc-2-1-285` | 2026-09-30 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.285` that started on 2026-09-30 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | The second id of client `2.1.285`; the conditions are those of `2026-09-29-ci-live-cc-2-1-285`. See *Why four versions have two ids* below. |
+| `2026-10-01-ci-live-cc-2-1-286` | 2026-10-01 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.286` that started on 2026-10-01 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-01-ci-live-cc-2-1-287` | 2026-10-01 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.287` that started on 2026-10-01 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-02-ci-live-cc-2-1-287` | 2026-10-02 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.287` that started on 2026-10-02 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | The second id of client `2.1.287`; the conditions are those of `2026-10-01-ci-live-cc-2-1-287`. See *Why four versions have two ids* below. |
+| `2026-10-04-ci-live-cc-2-1-289` | 2026-10-04 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.289` that started on 2026-10-04 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-06-ci-live-cc-2-1-291` | 2026-10-06 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.291` that started on 2026-10-06 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-07-ci-live-cc-2-1-292` | 2026-10-07 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.292` that started on 2026-10-07 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-07-ci-live-cc-2-1-293` | 2026-10-07 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.293` that started on 2026-10-07 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-08-ci-live-cc-2-1-293` | 2026-10-08 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.293` that started on 2026-10-08 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | The second id of client `2.1.293`; the conditions are those of `2026-10-07-ci-live-cc-2-1-293`. See *Why four versions have two ids* below. |
+| `2026-10-13-ci-live-cc-2-1-296` | 2026-10-13 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.296` that started on 2026-10-13 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-14-ci-live-cc-2-1-299` | 2026-10-14 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.299` that started on 2026-10-14 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-14-ci-live-cc-2-1-300` | 2026-10-14 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.300` that started on 2026-10-14 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | See *The live CI fences* below. |
+| `2026-10-15-ci-live-cc-2-1-300` | 2026-10-15 | `ci-live` | Rows written by the review's capture job for reviews under client `2.1.300` that started on 2026-10-15 (UTC). On every one of them `agent.system_prompt_sha256` is **captured**: the job that ran the model exported it. | The second id of client `2.1.300`; the conditions are those of `2026-10-14-ci-live-cc-2-1-300`. See *Why four versions have two ids* below. |
 | `2026-09-23-harness-claude-cc-2-1-280` | 2026-09-23 | `harness-claude` | Rows written by `exeris-agent close-run` for an arm that runs Claude Code `2.1.280` against a vendor's model, headless, under the execution identity. | See *The harness fences* below. |
 | `2026-09-23-harness-claude-cc-2-1-280-w-4c856523d61d` | 2026-09-23 | `harness-claude` | The same producer and client, for an arm whose model is served on this machine from weights whose digest begins `4c856523d61d` (`gemma4:26b-a4b-it-qat` under Ollama, 128k context). | See *The harness fences* below. |
 | `2026-09-23-harness-antigravity-cc-1-2-8` | 2026-09-23 | `harness-antigravity` | Rows written by `exeris-agent close-run` for an arm that runs Antigravity `1.2.8` in its print mode, under the execution identity. | See *The harness fences* below. |
@@ -80,6 +94,35 @@ rule, applied to the producer that wrote them.
 were produced under `2.1.272`, `2.1.273`, `2.1.274` and `2.1.278`. A single id spanning all four
 would join rows whose harness differed, which is the join `instrument.fence` exists to prevent.
 
+## The live CI fences
+
+The fourteen `ci-live` ids above are written by the capture job of the organisation's review
+workflow (`scripts/capture_ci_row.py` in exeris-systems/.github), one row per review run, on the
+day of the run. They share one entry, because they mark one producer under ten client versions.
+
+**What they mark.** Unlike the backfill, this producer reconstructs nothing. The job that ran the
+model exported the digests of what it handed over — the rendered prompt, the routine, `AGENTS.md`,
+and the system prompt they make together — and the capture job takes them as inputs. Every other
+component of the row is a count read from the run's own event stream or a fact read from the
+platform over REST. A component the inputs do not establish yields no row, with the reason
+counted, never a convenient value (ADR-087 §C.14). The verdict reaches the publication through
+the execution log, and the run is billed to a subscription.
+
+**Who writes the id.** The producer writes the id itself, with the row, and no person enters it
+first. That is why the register can lag behind the inbox: an id in a row and absent here is a
+fence with no recorded meaning, which is a defect of the register, not of the row.
+
+**Why four versions have two ids.** The id's date is the UTC day the review started
+(`review_started_at`), read for each row, not the day the producer first ran under that client
+version. A client version whose reviews fall on two UTC days is therefore written under two ids,
+one per day. Four versions did: `2.1.285` (2026-09-29 and 2026-09-30), `2.1.287` (2026-10-01 and
+2026-10-02), `2.1.293` (2026-10-07 and 2026-10-08) and `2.1.300` (2026-10-14 and 2026-10-15). Within
+each pair nothing the id records differs — the producer, the client version and the contract
+version are the same — so the second id marks a new day, not new conditions. The
+fourteen ids are ten sets of conditions. A count of fences that means conditions counts ten here,
+not fourteen. Rows under the two ids of one pair are not on opposite sides of a fence. The rows
+keep the ids they were written with: rows are never rewritten.
+
 ## The harness fences
 
 The three `harness-*` ids above are the local producer's first, entered before its first row, as
@@ -131,7 +174,8 @@ when its pull request can be opened.
 `<date>-<producer>-cc-<harness version, its dots written as dashes>[-w-<weights digest>]`
 
 - `<date>` — the day the fence was written, `YYYY-MM-DD`, which the contract's own pattern requires
-  first.
+  first. A producer that writes its id with each row, as `ci-live` does, writes the day of that
+  row's run; see *Why four versions have two ids*.
 - `<producer>` — what wrote the rows the fence marks, named by what it is rather than by what ran
   it: `ci-backfill`, `ci-live`, `harness-claude`.
 - `cc-<version>` — the client and the version of it the rows were produced under, `2.1.274` written
@@ -151,7 +195,8 @@ the contract admits, and says it the same way every time — a fence id that has
 to neither half of the rows it marks.
 
 One client version is one fence: a producer that ran under three client versions writes three ids
-and three entries, because the client is part of the model reference (`agent.harness`) and a change
+and three entries (`ci-live` can write more ids than versions; see *Why four versions have two
+ids*), because the client is part of the model reference (`agent.harness`) and a change
 to it is a change to the run's conditions. One set of weights is one fence for the same reason: a
 local arm whose `.gguf` is replaced writes another id and another entry, and the rows before the
 swap are neither re-derived nor summarised with the rows after it.
