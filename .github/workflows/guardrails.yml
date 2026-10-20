@@ -8,7 +8,11 @@ on:
   pull_request:
     # labeled/unlabeled matter: adr-conventions rule 9 requires the `adr` label on a PR that
     # amends an ADR, so adding the label after a red run has to re-run the gate.
-    types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+    #
+    # `closed` is not a gate event and is here for one job: the judgement of ADR-087 §C.16, which
+    # reads what the human did with the review once there is a history to read. Every other job
+    # skips it explicitly — a gate on a pull request that can no longer merge decides nothing.
+    types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled, closed]
   # A PERSON'S APPROVAL IS A HUMAN REVIEW (ADR-087 §B.8), and it has to reach the required check as
   # an event of its own: the check is read from the newest run on the head commit, so an approval no
   # run follows would green nothing until something else happened. `dismissed` because withdrawing
@@ -26,8 +30,10 @@ concurrency:
   # AND NOT ON A REVIEW: a review changes no diff, so it has nothing newer to put in place of the
   # run already working, and approving beside a review that is still running would otherwise
   # cancel it. It queues instead, and reads the approval when it runs.
+  # The close is kept out of the collapse by its own clause: the human who merges is no `[bot]`, so
+  # without it the merge cancels the run still publishing the verdict and the judgement after it.
   cancel-in-progress: >-
-    ${{ github.event_name != 'pull_request_review' && !endsWith(github.actor, '[bot]') }}
+    ${{ github.event.action != 'closed' && github.event_name != 'pull_request_review' && !endsWith(github.actor, '[bot]') }}
 # A called workflow can only narrow the caller's permissions, never raise them, so this block must
 # be the UNION of what every job below declares — except a job that carries its own `permissions:`
 # key, which replaces this workflow-level grant for that job rather than adding to it, and must then
@@ -46,9 +52,14 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+  # `actions: read` belongs to `judge` alone: the judgement compares the commit a review READ with
+  # the head the pull request ended at, and the first is the reviewing run's own `head_sha`, which
+  # the platform states on the Actions API and nowhere else independent of the record being judged.
+  actions: read
 
 jobs:
   docs:
+    if: ${{ github.event.action != 'closed' }}
     uses: exeris-systems/.github/.github/workflows/docs-lint.yml@main
     with:
       mode: ramp                # switch to strict per repo once the frontmatter backfill has landed
@@ -71,8 +82,10 @@ jobs:
       # to take something out — a vendored tree, say:
       # exclude: "docs/vendor"
   commits:
+    if: ${{ github.event.action != 'closed' }}
     uses: exeris-systems/.github/.github/workflows/commit-lint.yml@main
   pr-body:
+    if: ${{ github.event.action != 'closed' }}
     uses: exeris-systems/.github/.github/workflows/pr-body-check.yml@main
   # The L2 review of ADR-085 §J.33, published under the organisation's identity by ADR-087 §B.
   # Without this job the routine runs only in Cowork sessions and never on a pull request.
@@ -112,7 +125,7 @@ jobs:
   # worse than a red one.
   review:
     needs: [docs, commits, pr-body]
-    if: ${{ always() }}
+    if: ${{ always() && github.event.action != 'closed' }}
     # A job-level `permissions:` key replaces the workflow-level grant for this job rather than
     # adding to it, so every permission this job needs is restated here: `id-token: write` is the
     # OIDC exchange claude-code-action performs, needed by no other job in this file.
@@ -124,6 +137,22 @@ jobs:
     uses: exeris-systems/.github/.github/workflows/review.yml@main
     with:
       publish: true
+      # CAPTURE IS THE SECOND OPT-IN, and a separate decision from the first. With it on, the run
+      # becomes a row in the organisation's execution dataset (ADR-087 §C.13-§C.17): the runner's
+      # execution log is committed to the streams repository as content, a run record is assembled
+      # from what the producing job exported about itself, and the day's rows reach the inbox as
+      # one pull request per repository per day.
+      #
+      # IT RUNS INSIDE THE PUBLISHING HALF, so it needs `publish: true` as well: with publication
+      # off there is no job for it to be a part of, and `capture: true` alone runs nothing and
+      # says nothing about having run nothing.
+      #
+      # It needs the two EXERIS_INBOX_* secrets below and NO new permission: the capture job reads
+      # the repository and the pull request, both of which the block at the top already grants, and
+      # every write goes through the App's installation token. Without the secrets the job reports
+      # that it has no identity to write under and writes nothing; the review and its gate are
+      # unaffected either way.
+      capture: true
       l1-results: >-
         {"docs-lint": "${{ needs.docs.result }}",
          "commit-lint": "${{ needs.commits.result }}",
@@ -159,6 +188,16 @@ jobs:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       exeris_bot_app_id: ${{ secrets.EXERIS_BOT_APP_ID }}
       exeris_bot_private_key: ${{ secrets.EXERIS_BOT_PRIVATE_KEY }}
+      # THE PEN, which `capture: true` above writes with. A caller may pass only a secret the called
+      # workflow DECLARES: one it does not declare is not ignored, it makes the whole file an
+      # invalid workflow in the adopting repository, on the first push, with no logs — taking every
+      # gate in this file down with it, not only this job.
+      #
+      # They are optional exactly as the two lines above are: an organisation secret that is not set
+      # arrives as an empty string, and the capture job then says so and writes nothing. They are
+      # named rather than inherited for the reason the others are.
+      exeris_inbox_app_id: ${{ secrets.EXERIS_INBOX_APP_ID }}
+      exeris_inbox_private_key: ${{ secrets.EXERIS_INBOX_PRIVATE_KEY }}
   # The instrument's own calibration, which is a different question from every gate above. Those
   # ask whether this pull request is sound; this asks whether the oracle that judges other
   # repositories still catches what it claims to catch — and a calibration nobody re-runs is a
@@ -171,6 +210,7 @@ jobs:
   # fetched, and a notice says the published calibration stood unverified by that run. Passing on
   # an absent corpus is the eighth mutant, and it is not made acceptable by being CI's own.
   oracle:
+    if: ${{ github.event.action != 'closed' }}
     name: oracle calibration
     runs-on: ubuntu-latest
     env:
@@ -247,3 +287,17 @@ jobs:
   #   with: { package-dir: ".", typedoc: true, api-report: "mcp-tool-surface" }                 # exeris-ai-bridge
   #   with: { package-dir: "exeris-sdk-ui-kit", typedoc: true, api-report: "api-extractor" }    # exeris-sdk
   #   with: { package-dir: "exeris-codegen-ts", typedoc: true }                                 # exeris-tooling
+  # The other half of the record, and the only job here that runs on `closed`. A review-domain run
+  # record is complete when the review ends and its outcome is `UNKNOWN`: the oracle has not judged
+  # yet. `review-disposition` judges when the pull request closes — per finding, from what the human
+  # did with it — and its verdict is appended as its own record keyed by the run's id (ADR-087
+  # §C.16). It is not a gate: the pull request is closed, it publishes no check a branch protection
+  # rule can name, and it posts nothing to the pull request.
+  judge:
+    if: ${{ github.event.action == 'closed' }}
+    uses: exeris-systems/.github/.github/workflows/judge-review.yml@main
+    secrets:
+      exeris_bot_app_id: ${{ secrets.EXERIS_BOT_APP_ID }}
+      exeris_bot_private_key: ${{ secrets.EXERIS_BOT_PRIVATE_KEY }}
+      exeris_inbox_app_id: ${{ secrets.EXERIS_INBOX_APP_ID }}
+      exeris_inbox_private_key: ${{ secrets.EXERIS_INBOX_PRIVATE_KEY }}
