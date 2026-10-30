@@ -1,0 +1,29 @@
+{
+  "dispositions": [
+    {
+      "disposition": "unresolved",
+      "finding_index": 0
+    },
+    {
+      "disposition": "addressed",
+      "finding_index": 1
+    }
+  ],
+  "instrument": {
+    "capture_version": "0.2.0",
+    "fence": "2026-10-30-ci-live-cc-2-1-314"
+  },
+  "judged_at": "2026-10-30T07:56:40Z",
+  "judgement_id": "ci-41016120363-12959706790-disposition-20261030T075640Z",
+  "oracle": {
+    "calibration": {
+      "result": "none",
+      "status": "not-run",
+      "suite": "none"
+    },
+    "id": "review-disposition",
+    "version": "rest-v1"
+  },
+  "outcome": "UNKNOWN",
+  "run_id": "ci-41016120363-12959706790"
+}
