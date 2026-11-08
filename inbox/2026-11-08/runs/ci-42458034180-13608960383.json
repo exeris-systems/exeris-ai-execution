@@ -1,0 +1,64 @@
+{
+  "accounting": {
+    "mode": "subscription",
+    "usage": {
+      "cache_read_tokens": 181281,
+      "cache_write_tokens": 25988,
+      "input_tokens": 12,
+      "output_tokens": 1648
+    }
+  },
+  "agent": {
+    "harness": {
+      "client": "claude-code",
+      "version": "2.1.319"
+    },
+    "model_id": "claude-sonnet-5-5",
+    "model_snapshot": "unresolved:claude-sonnet-5-5",
+    "provider": "anthropic",
+    "system_prompt_sha256": "9c3e9a80246404410312967f2bfca23be5bd231de3b85173ed998d29a2322d2d"
+  },
+  "execution": {
+    "capture_level": "full",
+    "event_stream": {
+      "event_count": 24,
+      "ref": "exeris-systems/exeris-ai-execution-streams/streams/2026-11-08/exeris-tooling/42458034180-13608960383.json@1e5618e517919d2bcc477dbc1c9d65534ccfeef6",
+      "sha256": "2a371930a7f5b66ef576d57867648b2202babea7b05bf8ab6a03326744662aa4"
+    },
+    "human_prompts": 0,
+    "permission_denials": 0,
+    "tool_calls": 6,
+    "tool_surface": "b6caddabf6d0378f1d186b35da063a107b2001690ab7317666a10a33218327eb",
+    "turns": 7,
+    "verdict_route": "execution-log",
+    "wall_time_ms": 19340
+  },
+  "instrument": {
+    "capture_version": "0.2.0",
+    "fence": "2026-11-08-ci-live-cc-2-1-319"
+  },
+  "oracle": {
+    "calibration": {
+      "result": "none",
+      "status": "not-run",
+      "suite": "none"
+    },
+    "id": "review-disposition",
+    "version": "rest-v1"
+  },
+  "outcome": "UNKNOWN",
+  "repository_state": {
+    "bundle_version": "2.1.0",
+    "commit": "134fb7094a2f7a8402af973b9b4fc49feade8133",
+    "dirty": false,
+    "repository": "exeris-systems/exeris-tooling",
+    "visibility": "public"
+  },
+  "run_id": "ci-42458034180-13608960383",
+  "started_at": "2026-11-08T07:17:40Z",
+  "workload": {
+    "domain": "docs-review-live",
+    "fingerprint": "ci:a1e9fc46788134175828ff80b55791034265e79a588c4631e5700019bc13b988",
+    "scope": "docs-only"
+  }
+}
