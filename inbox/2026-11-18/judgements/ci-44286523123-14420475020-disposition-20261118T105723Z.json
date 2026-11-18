@@ -1,0 +1,20 @@
+{
+  "dispositions": [],
+  "instrument": {
+    "capture_version": "0.2.0",
+    "fence": "2026-11-18-ci-live-cc-2-1-327"
+  },
+  "judged_at": "2026-11-18T10:57:23Z",
+  "judgement_id": "ci-44286523123-14420475020-disposition-20261118T105723Z",
+  "oracle": {
+    "calibration": {
+      "result": "none",
+      "status": "not-run",
+      "suite": "none"
+    },
+    "id": "review-disposition",
+    "version": "rest-v1"
+  },
+  "outcome": "UNKNOWN",
+  "run_id": "ci-44286523123-14420475020"
+}
